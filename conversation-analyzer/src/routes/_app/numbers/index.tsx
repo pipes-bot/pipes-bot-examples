@@ -73,7 +73,7 @@ function Numbers() {
                     params={{ numberId: number._id }}
                     className="font-medium hover:underline"
                   >
-                    {number.displayName}
+                    {number.displayName || number.phoneNumber || number.poolNumberId}
                   </Link>
                 </TableCell>
                 <TableCell>{number.phoneNumber}</TableCell>

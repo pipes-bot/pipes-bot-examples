@@ -53,9 +53,6 @@ importers:
       react-dom:
         specifier: ^19.3.1
         version: 19.3.1(react@19.3.1)
-      shadcn:
-        specifier: ^4.23.0
-        version: 4.23.0
       sonner:
         specifier: ^2.0.8
         version: 2.0.8(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -90,6 +87,9 @@ importers:
       convex-test:
         specifier: 0.0.66
         version: 0.0.66(convex@1.49.0(react@19.3.1))
+      shadcn:
+        specifier: ^4.23.0
+        version: 4.23.0
       typescript:
         specifier: ~7.0.2
         version: 7.0.2

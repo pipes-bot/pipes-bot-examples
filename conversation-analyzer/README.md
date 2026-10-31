@@ -40,6 +40,8 @@ pnpm install
 pnpm exec convex dev        # creates a deployment, pushes the functions, writes .env.local
 ```
 
+`convex dev` keeps running and pushes your function changes as you edit, so leave it open and run the commands below, and later `pnpm dev`, in a second terminal.
+
 On first run `convex dev` asks how to create the deployment. Without a Convex account, run `CONVEX_AGENT_MODE=anonymous pnpm exec convex dev` to get a local anonymous deployment. A local deployment is not reachable from the internet, so pipes.bot cannot deliver webhooks to it. That is enough for the demo seed and the simulator. To connect a real number you need a cloud dev deployment (`pnpm exec convex dev` while logged in).
 
 Set the Convex environment variables on the deployment (they are not read from `.env.example`):
@@ -58,8 +60,8 @@ npx convex env set PIPES_API_BASE_URL https://api.pipes.bot
 
 | Variable | Where | Description |
 | --- | --- | --- |
-| `PIPES_API_KEY` | Convex | `ak_...` key of your App. Used to create signup links and check number health. Required. |
-| `PIPES_APP_SLUG` | Convex | Slug of your App, used to build the signup URL. Required. |
+| `PIPES_API_KEY` | Convex | `ak_...` key of your App. Used to create signup links and check number health. Required to connect a real number. |
+| `PIPES_APP_SLUG` | Convex | Slug of your App, used to build the signup URL. Required to connect a real number. |
 | `PIPES_WEBHOOK_SECRET` | Convex | `whsec_...` secret of your App. Required. |
 | `PIPES_API_BASE_URL` | Convex | Optional. Defaults to `https://api.pipes.bot`. |
 | `SITE_URL` | Convex | Exact origin of the web app, for example `http://localhost:5173`. Required. |
@@ -69,13 +71,15 @@ npx convex env set PIPES_API_BASE_URL https://api.pipes.bot
 | `VITE_CONVEX_URL` | `.env.local` | The `.convex.cloud` URL (or the local API URL). Written by `convex dev`. |
 | `VITE_CONVEX_SITE_URL` | `.env.local` | The `.convex.site` URL (or the local site proxy URL). Written by `convex dev`. |
 
+`PIPES_API_KEY` and `PIPES_APP_SLUG` can stay unset if you only use the demo seed and the simulator.
+
 Then start the web app and open http://localhost:5173:
 
 ```bash
 pnpm dev
 ```
 
-`pnpm test` runs the Convex functions against `convex-test`, `pnpm typecheck` checks the app and the functions, and `pnpm build` produces the static bundle.
+`pnpm test` runs the Convex functions against `convex-test`, `pnpm typecheck` checks the app and the functions, and `pnpm build` produces the static bundle. The webhook payloads in `tests/fixtures/` are copies of files in the repo's `fixtures/byon-v2/`, so this folder does not import anything from the repo root.
 
 ### Set up pipes.bot
 
@@ -182,7 +186,7 @@ Computed in code by a pure function, from the WhatsApp timestamps. A customer tu
 
 ### Number health
 
-An hourly cron calls `GET /v1/pool-numbers/{id}/health` for each number and maps the result to healthy, unhealthy or unknown (also used when the call fails). Demo numbers are skipped. The Numbers page shows the badge.
+An hourly cron calls `GET /v1/pool-numbers/{id}/health` for each number and maps the result to healthy, unhealthy or unknown (also used when the call fails). Demo numbers are skipped, and without `PIPES_API_KEY` real numbers show as unknown. The Numbers page shows the badge.
 
 ## Privacy
 
@@ -206,6 +210,6 @@ Left out on purpose, and good next steps:
 - Organizations and invitations. There is one workspace per account.
 - Showing media. Media messages appear as a type label with the caption.
 - BYON legacy, sandbox and WebSocket modes.
-- Email verification and OAuth sign-in.
+- Email verification and OAuth sign-in. To add OAuth providers, add `socialProviders` to the `betterAuth({...})` call in `convex/auth.ts` (see the [Better Auth OAuth docs](https://www.better-auth.com/docs/concepts/oauth)).
 
 Dashboard queries read at most 1000 conversations in the selected window. For larger volumes, keep the counters in [`@convex-dev/aggregate`](https://www.convex.dev/components/aggregate) instead.
