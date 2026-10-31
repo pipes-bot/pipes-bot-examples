@@ -24,6 +24,7 @@ Esta spec cobre só o **subprojeto 0**: a estrutura do repo, as ferramentas da r
 | Modos dos starters | Sandbox (`pk_`) **e** BYON API v2 (`ak_`), escolhido pelo prefixo da chave |
 | BYON legacy | Fora do escopo dos starters. O README aponta para os docs |
 | Stack dos apps completos (próximas specs) | TanStack Router (SPA estática) + Convex (httpActions, tempo real, scheduler, storage) + Better Auth (componente Convex, plugin `crossDomain`). Apps usam webhooks v2, não WebSocket |
+| IA nos apps completos (próximas specs) | OpenRouter, via Vercel AI SDK (`@openrouter/ai-sdk-provider`) nas actions do Convex. Modelo configurável por `OPENROUTER_API_KEY` + `OPENROUTER_MODEL` (padrão: Claude, slug confirmado em cada plano). Saída estruturada sempre validada (zod) com retry. README avisa sobre privacidade e restrição a provedores sem retenção de dados. Starters não usam IA |
 | Commits e PRs | Sem rodapé de co-autoria ou "Generated with Claude Code" (ver `AGENTS.md`) |
 
 ### Roadmap de subprojetos
