@@ -7,7 +7,7 @@
     "test": "node --test \"scripts/**/*.test.ts\"",
     "readme": "node scripts/generate-readme.ts",
     "readme:check": "node scripts/generate-readme.ts --check",
-    "simulate": "node scripts/simulate.ts",
+    "simulate": "node scripts/simulate-webhook.ts",
     "mock-api": "node scripts/mock-api.ts",
     "smoke": "node scripts/smoke.ts",
     "fixtures:sync": "node scripts/sync-fixtures.ts"
