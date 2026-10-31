@@ -68,7 +68,8 @@ export async function recordMessage(
       // The job already ran or was canceled; nothing to cancel.
     }
   }
-  const workspace = await ctx.db.get(number.workspaceId);
+  // Same workspace closeIfIdle reads, so the job never fires early.
+  const workspace = await ctx.db.get(conversation.workspaceId);
   const inactivityMinutes = workspace?.inactivityMinutes ?? DEFAULT_INACTIVITY_MINUTES;
   const closeJobId = await ctx.scheduler.runAt(
     Date.now() + inactivityMinutes * 60_000,

@@ -135,6 +135,43 @@ describe("ingest", () => {
     const numbers = await all(t, "numbers");
     expect(numbers).toHaveLength(1);
     expect(numbers[0].workspaceId).toBe(b);
+    const inA = await t.run((ctx) =>
+      ctx.db.query("numbers").withIndex("by_workspace", (q) => q.eq("workspaceId", a)).collect(),
+    );
+    expect(inA).toHaveLength(0);
+  });
+
+  it("moving a number closes the old workspace's open conversations", async () => {
+    const t = makeT();
+    const a = await seedWorkspace(t, "A");
+    const b = await seedWorkspace(t, "B");
+    await ingest(t, onboarded(POOL, a));
+    await ingest(t, envelope(messageText));
+    const [old] = await all(t, "conversations");
+    expect(old).toMatchObject({ workspaceId: a, status: "open" });
+
+    await ingest(t, onboarded(POOL, b));
+    await ingest(t, envelope(messageImage));
+
+    expect((await t.run((ctx) => ctx.db.get(old._id)))?.status).toBe("closed");
+    const openIn = (workspaceId: Id<"workspaces">) =>
+      t.run((ctx) =>
+        ctx.db
+          .query("conversations")
+          .withIndex("by_workspace_status", (q) =>
+            q.eq("workspaceId", workspaceId).eq("status", "open"),
+          )
+          .collect(),
+      );
+    expect(await openIn(a)).toHaveLength(0);
+    const [current] = await openIn(b);
+    const latest = await t.run((ctx) =>
+      ctx.db
+        .query("messages")
+        .withIndex("by_wamid", (q) => q.eq("wamid", messageImage.whatsapp.messages[0].id))
+        .first(),
+    );
+    expect(latest?.conversationId).toBe(current._id);
   });
 
   it("echo is never a customer message", async () => {
@@ -164,6 +201,11 @@ describe("ingest", () => {
     expect(contact.waId).toBeUndefined();
     const [conversation] = await all(t, "conversations");
     expect(conversation.initiatedBy).toBe("business");
+
+    await t.run((ctx) => closeConversation(ctx, conversation._id));
+    const closed = await t.run((ctx) => ctx.db.get(conversation._id));
+    expect(closed?.metrics).toBeDefined();
+    expect(closed?.metrics?.firstResponseSeconds).toBeUndefined();
   });
 
   it("status before echo is folded", async () => {
@@ -266,6 +308,35 @@ describe("ingest", () => {
     expect(event.receivedAt).toBe(arrival);
   });
 
+  it("echo without timestamp falls back to arrival time", async () => {
+    const t = makeT();
+    await seedNumber(t);
+    const payload = envelope(smbMessageEcho);
+    delete payload.whatsapp.message_echoes[0].timestamp;
+    const arrival = NOW - 5_000;
+
+    await t.run((ctx) => ingestPayload(ctx, "wh_echo_no_ts", payload, arrival));
+
+    const [message] = await all(t, "messages");
+    expect(message.sentAt).toBe(arrival);
+  });
+
+  it("status with a millisecond timestamp falls back to arrival time", async () => {
+    const t = makeT();
+    await seedNumber(t);
+    const message = envelope(messageText);
+    const status = envelope(statusDeliveredBsuid);
+    status.whatsapp.statuses[0].id = message.whatsapp.messages[0].id;
+    status.whatsapp.statuses[0].timestamp = "1750030073000";
+    const arrival = NOW - 5_000;
+
+    await ingest(t, message);
+    await t.run((ctx) => ingestPayload(ctx, "wh_status_ms", status, arrival));
+
+    const [row] = await all(t, "messages");
+    expect(row.deliveredAt).toBe(arrival);
+  });
+
   it("message after close opens a new conversation", async () => {
     const t = makeT();
     await seedNumber(t);
@@ -297,6 +368,31 @@ describe("ingest", () => {
     const [conversation] = await all(t, "conversations");
     expect(conversation.closeJobId).toBe(jobs[1]._id as Id<"_scheduled_functions">);
     expect(conversation.waitingSince).toBe(1749416383 * 1000);
+  });
+
+  it("schedules the close with the conversation's workspace inactivity", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    const other = await t.run((ctx) =>
+      ctx.db.insert("workspaces", {
+        ownerId: "owner_other",
+        name: "Other",
+        inactivityMinutes: 30,
+        methodology: DEFAULT_METHODOLOGY,
+      }),
+    );
+    // The number now points at a 30-minute workspace; the open conversation is in the 120-minute one.
+    const conversationWorkspace = (await t.run((ctx) => ctx.db.get(numberId)))!.workspaceId;
+    await ingest(t, envelope(messageText));
+    await t.run((ctx) => ctx.db.patch(numberId, { workspaceId: other }));
+    await ingest(t, envelope(messageImage));
+
+    const [conversation] = await all(t, "conversations");
+    expect(conversation.workspaceId).toBe(conversationWorkspace);
+    const job = await t.run((ctx) => ctx.db.system.get(conversation.closeJobId!));
+    const delay = job!.scheduledTime - NOW;
+    expect(delay).toBeGreaterThanOrEqual(120 * 60_000);
+    expect(delay).toBeLessThan(120 * 60_000 + 1_000);
   });
 
   it("same wamid in another event is recorded once", async () => {

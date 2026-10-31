@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
-import { recordMessage } from "./conversations";
+import { closeConversation, recordMessage } from "./conversations";
 import {
   contactName,
   contentOf,
@@ -202,6 +202,17 @@ async function onboardNumber(
   };
   let number: Doc<"numbers">;
   if (existing) {
+    if (existing.workspaceId !== workspace._id) {
+      // The number moved: close what the old workspace had open so new messages
+      // start conversations in the new workspace.
+      const open = await ctx.db
+        .query("conversations")
+        .withIndex("by_number_status_activity", (q) =>
+          q.eq("numberId", existing._id).eq("status", "open"),
+        )
+        .collect();
+      for (const conversation of open) await closeConversation(ctx, conversation._id, now);
+    }
     await ctx.db.patch(existing._id, fields);
     number = { ...existing, ...fields };
   } else {
