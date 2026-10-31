@@ -111,7 +111,7 @@ pnpm simulate byon-v2/test-webhook --url <site-url>/webhooks/pipes --secret <whs
 2. Build the web app with `pnpm build` and host the `dist/` folder as a static site on Vercel or Netlify. Set `VITE_CONVEX_URL` and `VITE_CONVEX_SITE_URL` in the host's build environment, and add a rewrite of every path to `/index.html` so deep links work.
 3. In pipes.bot, set the webhook URL to `https://<production-deployment>.convex.site/webhooks/pipes`.
 
-`SITE_URL` must be the exact origin of the SPA (scheme, host and port, no trailing path). Better Auth `trustedOrigins` has no wildcards, so preview deployments on other origins cannot sign in. The signup `redirectUrl` is built from `SITE_URL` and must be HTTPS except on localhost.
+`SITE_URL` must be the exact origin of the SPA (scheme, host and port, no trailing path). This app trusts exactly one origin, `SITE_URL`, so preview deployments on other origins cannot sign in. Better Auth accepts wildcard patterns in `trustedOrigins` if you extend `convex/auth.ts`. The signup `redirectUrl` is built from `SITE_URL` and must be HTTPS except on localhost.
 
 ## How it works
 
