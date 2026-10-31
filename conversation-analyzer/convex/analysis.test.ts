@@ -135,6 +135,27 @@ describe("analyzeConversation", () => {
     expect(model.doGenerateCalls).toHaveLength(3);
   });
 
+  it("fails with a reason when every call times out", async () => {
+    const model = useModel({
+      doGenerate: async () => {
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      },
+    });
+    const { t, conversationId, analysis } = await seed();
+    await t.action(internal.analysis.analyzeConversation, { conversationId, requestedAt: 1 });
+    const result = await analysis();
+    expect(result.state).toBe("failed");
+    expect(result.reason).toContain("timed out");
+    expect(model.doGenerateCalls).toHaveLength(3);
+  });
+
+  it("passes an abort signal to every model call", async () => {
+    const model = useModel({ doGenerate: async () => reply(validOutput) });
+    const { t, conversationId } = await seed();
+    await t.action(internal.analysis.analyzeConversation, { conversationId, requestedAt: 1 });
+    expect(model.doGenerateCalls[0].abortSignal).toBeInstanceOf(AbortSignal);
+  });
+
   it("skipped without reply", async () => {
     const model = useModel({ doGenerate: async () => reply(validOutput) });
     const { t, conversationId, analysis } = await seed(false);

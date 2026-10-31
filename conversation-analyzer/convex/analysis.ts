@@ -9,6 +9,7 @@ import { buildTranscript } from "./lib/transcript";
 import { analysisValidator } from "./schema";
 
 const MAX_ATTEMPTS = 3;
+const MODEL_CALL_TIMEOUT_MS = 120_000;
 
 const patchValidator = v.object({
   state: v.optional(analysisValidator.fields.state),
@@ -104,6 +105,7 @@ export const analyzeConversation = internalAction({
           system,
           prompt: transcript,
           maxRetries: 0,
+          timeout: MODEL_CALL_TIMEOUT_MS,
         });
         const checked = checkEvaluation(output, analysis.methodology, transcript);
         if (!checked.ok) {
