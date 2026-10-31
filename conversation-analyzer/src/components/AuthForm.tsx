@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useConvexAuth } from "convex/react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +12,15 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const { isAuthenticated } = useConvexAuth();
   const isSignUp = mode === "sign-up";
+
+  // Navigate only once Convex has the auth token, otherwise `_app` can see
+  // "not authenticated" for a moment and bounce back to /sign-in. This also
+  // redirects users who are already signed in.
+  useEffect(() => {
+    if (isAuthenticated) void navigate({ to: "/" });
+  }, [isAuthenticated, navigate]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -27,12 +36,11 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
         : await authClient.signIn.email({ email, password });
       if (result.error) {
         setError(result.error.message ?? "Something went wrong. Try again.");
-        return;
+        setPending(false);
       }
-      await navigate({ to: "/" });
+      // On success stay pending until the effect above navigates.
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong. Try again.");
-    } finally {
       setPending(false);
     }
   }
@@ -67,7 +75,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
                 name="password"
                 type="password"
                 autoComplete={isSignUp ? "new-password" : "current-password"}
-                minLength={8}
+                minLength={isSignUp ? 8 : undefined}
                 required
               />
             </div>
