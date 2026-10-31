@@ -1,4 +1,9 @@
-import base64, hashlib, hmac, json, os, time
+import base64
+import hashlib
+import hmac
+import json
+import os
+import time
 from collections import OrderedDict
 from functools import partial
 
@@ -7,6 +12,7 @@ import uvicorn
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
+app = FastAPI()
 log = partial(print, flush=True)
 api_key = os.environ.get("PIPES_API_KEY", "")
 secret = os.environ.get("PIPES_WEBHOOK_SECRET", "")
@@ -21,8 +27,11 @@ if mode == "byon" and not secret:
 if mode == "sandbox" and not secret:
     log("PIPES_WEBHOOK_SECRET is not set: sandbox signatures will NOT be verified")
 
-# BYON v2 signing key: the base64 part of the whsec_ secret (a malformed secret fails here, at startup).
-byon_key = base64.b64decode(secret.removeprefix("whsec_")) if mode == "byon" else b""
+# BYON v2 signing key: the base64 part of the whsec_ secret.
+try:
+    byon_key = base64.b64decode(secret.removeprefix("whsec_")) if mode == "byon" else b""
+except ValueError:
+    raise SystemExit("PIPES_WEBHOOK_SECRET is not valid base64: expected the whsec_... secret of your App")
 
 # In-memory dedup, capped at 1000 entries. In production, keep this in your database.
 seen: OrderedDict[str, None] = OrderedDict()
@@ -53,24 +62,30 @@ def verify_sandbox(headers, body: bytes) -> bool:
 
 # BYON v2 (Standard Webhooks): sign `{id}.{timestamp}.{body}`, key = base64-decoded secret.
 def verify_byon(headers, body: bytes) -> bool:
-    msg_id, ts, signatures = (headers.get(h, "") for h in ("webhook-id", "webhook-timestamp", "webhook-signature"))
-    fresh = ts.isascii() and ts.isdigit() and abs(time.time() - int(ts)) <= 300  # integer seconds, 5 minutes
+    msg_id = headers.get("webhook-id", "")
+    ts = headers.get("webhook-timestamp", "")
+    signatures = headers.get("webhook-signature", "")
+    if not (msg_id and ts and signatures):
+        return False
+    # Integer seconds only (the length cap keeps int() safe), at most 5 minutes off.
+    if not (ts.isascii() and ts.isdigit() and len(ts) <= 12 and abs(int(time.time()) - int(ts)) <= 300):
+        return False
     expected = base64.b64encode(hmac.new(byon_key, f"{msg_id}.{ts}.".encode() + body, hashlib.sha256).digest())
-    entries = (entry.partition(",") for entry in signatures.split(" "))  # rotation: any v1 entry may match
-    return bool(msg_id) and fresh and any(v == "v1" and hmac.compare_digest(s.encode(), expected) for v, _, s in entries)
+    for entry in signatures.split(" "):  # secret rotation: any v1 entry may match
+        version, _, signature = entry.partition(",")
+        if version == "v1" and hmac.compare_digest(signature.encode(), expected):
+            return True
+    return False
 
 
 # Runs after the 200 has been returned; failures are logged and never raised into the request.
 async def send(path: str, payload: dict, msg_id: str) -> None:
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10) as client:  # production: share one client via a lifespan handler
             res = await client.post(base_url + path, json=payload, headers={"Authorization": f"Bearer {api_key}"})
         log(f"replied {msg_id}" if res.is_success else f"send failed {msg_id}: {res.status_code} {res.text}")
     except Exception as err:
         log(f"send failed {msg_id}: {err!r}")
-
-
-app = FastAPI()
 
 
 @app.post("/webhook")

@@ -10,7 +10,7 @@ features: [webhooks, sandbox, byon-v2]
 
 ## What it shows
 
-A pipes.bot webhook receiver in one file (`main.py`, about 120 lines). It verifies the signature, ignores everything that is not a text message and replies `Echo: <text>`. It runs in two modes, picked from the prefix of `PIPES_API_KEY`:
+A pipes.bot webhook receiver in one file (`main.py`, about 140 lines). It verifies the signature, ignores everything that is not a text message and replies `Echo: <text>`. It runs in two modes, picked from the prefix of `PIPES_API_KEY`:
 
 - `pk_...`: sandbox, legacy payload, `X-Pipes-Signature` header.
 - `ak_...`: BYON API v2, Standard Webhooks signature, v2 envelope.
@@ -23,7 +23,7 @@ A pipes.bot webhook receiver in one file (`main.py`, about 120 lines). It verifi
 
 ## Run locally
 
-Requires [uv](https://docs.astral.sh/uv/). It installs Python 3.11 or later and the dependencies from `pyproject.toml` for you.
+Requires [uv](https://docs.astral.sh/uv/). It uses Python 3.12 (pinned by `.python-version`) and installs the dependencies from `pyproject.toml` for you.
 
 ```bash
 cp .env.example .env   # set PIPES_API_KEY and PIPES_WEBHOOK_SECRET
@@ -57,7 +57,7 @@ Any host that runs Python works (a VPS, Railway, Fly.io, Render). Set the enviro
 
 1. `PIPES_API_KEY` picks the mode at startup. A missing or unknown key exits with an error. BYON without `PIPES_WEBHOOK_SECRET` also exits.
 2. The handler reads the raw body with `await request.body()` before parsing, because the signature covers the exact bytes.
-3. The signature is checked with `hmac` and `hmac.compare_digest`. Sandbox: hex HMAC-SHA256 of the body with the raw secret. BYON v2: HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`, keyed with the base64-decoded `whsec_` secret. Any `v1,` entry in the header may match (secret rotation) and timestamps more than 5 minutes off are rejected. Invalid signature returns 401, invalid JSON returns 400, and a JSON body that is not an object returns 400 `invalid payload`.
+3. The signature is checked with `hmac` and `hmac.compare_digest`. Sandbox: hex HMAC-SHA256 of the body with the raw secret. BYON v2: HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`, keyed with the base64-decoded `whsec_` secret. Any `v1,` entry in the header may match (secret rotation) and timestamps that are not integer seconds, or are more than 5 minutes off, are rejected. Invalid signature returns 401, invalid JSON returns 400, and a JSON body that is not an object returns 400 `invalid payload`.
 4. Test payloads (`{"test": true}` or `{"event": "test"}`) get a 200 and nothing else.
 5. Duplicates are dropped using the message id (sandbox) or `webhook-id` (BYON). A sandbox message without an `id` is skipped, since there is nothing to deduplicate on.
 6. Only text messages are answered. In v2 the envelope must have `field: "messages"`. Statuses, echoes and system events are skipped, so the bot never answers itself. The recipient is `message.from ?? message.from_user_id`.
