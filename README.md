@@ -26,6 +26,12 @@ Then follow the "Run locally" section of that example's README.
 | [with-nextjs-route-handler](./with-nextjs-route-handler) | nextjs, typescript, vercel | webhooks, sandbox, byon-v2 | Receive and reply to WhatsApp messages with a single Next.js route handler, ready for Vercel |
 | [with-websocket-node](./with-websocket-node) | nodejs, typescript, ws | websocket, sandbox, byon-v2 | Receive and reply to WhatsApp messages over a WebSocket connection, no public URL needed |
 
+### Apps
+
+| Example | Stack | pipes.bot features | Description |
+| --- | --- | --- | --- |
+| [conversation-analyzer](./conversation-analyzer) | tanstack-router, convex, better-auth, openrouter, typescript | webhooks, byon-v2, embedded-signup, coexistence, echoes | Connect WhatsApp Business numbers, capture every reply sent from the phone, and score each conversation on response time and your support methodology |
+
 <!-- examples:end -->
 
 ## Testing without a phone

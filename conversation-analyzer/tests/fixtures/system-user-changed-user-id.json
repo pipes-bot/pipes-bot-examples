@@ -1,0 +1,30 @@
+{
+  "id": "evt_92a3b4c5d6e7f8091a2b3c4d5e6f7081",
+  "field": "messages",
+  "createdAt": "2025-06-08T20:59:44.512Z",
+  "pipes": {
+    "appId": "app_abc123",
+    "poolNumberId": "pn_abc123",
+    "media": {}
+  },
+  "whatsapp": {
+    "messaging_product": "whatsapp",
+    "metadata": {
+      "display_phone_number": "15550001111",
+      "phone_number_id": "106540352242922"
+    },
+    "messages": [
+      {
+        "id": "wamid.HBgLMTY1MDU1NTk5OTkVAgASGBQ4RTFDRjQ3NTJBOURCMkNENTYA",
+        "timestamp": "1749416383",
+        "type": "system",
+        "system": {
+          "body": "User changed from US.13491208655302741918 to US.99999999999999999999",
+          "user_id": "US.99999999999999999999",
+          "previous_user_id": "US.13491208655302741918",
+          "type": "user_changed_user_id"
+        }
+      }
+    ]
+  }
+}
