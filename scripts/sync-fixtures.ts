@@ -21,6 +21,7 @@ const BASE_URL = "https://docs.pipes.bot/fixtures/byon-v2";
 const DIR = join(import.meta.dirname, "..", "fixtures", "byon-v2");
 
 let failed = false;
+let updated = 0;
 
 for (const name of DOCS_FILES) {
   const url = `${BASE_URL}/${name}.json`;
@@ -37,6 +38,7 @@ for (const name of DOCS_FILES) {
       console.log(`unchanged ${name}`);
     } else {
       writeFileSync(path, next);
+      updated++;
       console.log(`updated ${name}`);
     }
   } catch (err) {
@@ -45,4 +47,5 @@ for (const name of DOCS_FILES) {
   }
 }
 
+if (updated > 0) console.log('run "git diff fixtures/" to review the changes');
 if (failed) process.exit(1);

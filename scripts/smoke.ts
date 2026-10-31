@@ -96,6 +96,27 @@ const CASES: SmokeCase[] = [
     sends: [],
   },
   {
+    name: "signed-null",
+    mode: "sandbox",
+    fixture: "sandbox/message-text",
+    options: { rawBody: "null" },
+    status: [400],
+    sends: [],
+  },
+  {
+    name: "missing-id",
+    mode: "sandbox",
+    fixture: "sandbox/message-text",
+    options: {
+      transform: (body) => {
+        for (const message of body.entry[0].changes[0].value.messages) delete message.id;
+        return body;
+      },
+    },
+    status: [200],
+    sends: [],
+  },
+  {
     name: "duplicate",
     mode: "sandbox",
     fixture: "sandbox/message-text",
@@ -177,6 +198,14 @@ const CASES: SmokeCase[] = [
     mode: "byon",
     fixture: "byon-v2/message-text",
     options: { rawBody: "not json" },
+    status: [400],
+    sends: [],
+  },
+  {
+    name: "signed-null",
+    mode: "byon",
+    fixture: "byon-v2/message-text",
+    options: { rawBody: "null" },
     status: [400],
     sends: [],
   },
