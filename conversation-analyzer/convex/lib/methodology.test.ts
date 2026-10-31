@@ -60,37 +60,50 @@ describe("validateSettings", () => {
     expect(result.methodology[1].description).toBe("");
   });
 
-  it("rejects invalid input", () => {
-    const cases = [
-      { ...valid, methodology: [] },
-      { ...valid, inactivityMinutes: 0 },
-      { ...valid, inactivityMinutes: 5000 },
-      { ...valid, inactivityMinutes: 12.5 },
-      { ...valid, name: "  " },
-      { ...valid, methodology: [{ name: "  ", description: "" }] },
-      { ...valid, methodology: [{ name: "A", description: "x".repeat(501) }] },
-      {
-        ...valid,
-        methodology: [
-          { id: "a", name: "A", description: "" },
-          { id: "a", name: "B", description: "" },
-        ],
-      },
-    ];
-    for (const input of cases) {
-      expect(() => validateSettings(input, [])).toThrow(ConvexError);
-    }
-  });
-
-  it("rejects more than 20 steps and names the field", () => {
-    const methodology = Array.from({ length: 21 }, (_, i) => ({ name: `S${i}`, description: "" }));
-    expect(() => validateSettings({ ...valid, methodology }, [])).toThrow(ConvexError);
+  const thrownData = (input: Parameters<typeof validateSettings>[0]): unknown => {
     try {
-      validateSettings({ ...valid, inactivityMinutes: 4 }, []);
+      validateSettings(input, []);
     } catch (error) {
-      expect((error as ConvexError<string>).data).toBe(
-        "inactivityMinutes must be an integer between 5 and 1440",
-      );
+      expect(error).toBeInstanceOf(ConvexError);
+      return (error as ConvexError<string>).data;
+    }
+    throw new Error("validateSettings did not throw");
+  };
+
+  it("rejects invalid input with a message naming the field", () => {
+    const cases: [Parameters<typeof validateSettings>[0], string][] = [
+      [{ ...valid, methodology: [] }, "methodology must have between 1 and 20 steps"],
+      [
+        { ...valid, methodology: Array.from({ length: 21 }, (_, i) => ({ name: `S${i}`, description: "" })) },
+        "methodology must have between 1 and 20 steps",
+      ],
+      [{ ...valid, inactivityMinutes: 0 }, "inactivityMinutes must be an integer between 5 and 1440"],
+      [{ ...valid, inactivityMinutes: 4 }, "inactivityMinutes must be an integer between 5 and 1440"],
+      [{ ...valid, inactivityMinutes: 5000 }, "inactivityMinutes must be an integer between 5 and 1440"],
+      [{ ...valid, inactivityMinutes: 12.5 }, "inactivityMinutes must be an integer between 5 and 1440"],
+      [{ ...valid, name: "  " }, "name must be between 1 and 80 characters"],
+      [{ ...valid, name: "x".repeat(81) }, "name must be between 1 and 80 characters"],
+      [
+        { ...valid, methodology: [{ name: "  ", description: "" }] },
+        "methodology step 1 name must be between 1 and 80 characters",
+      ],
+      [
+        { ...valid, methodology: [{ name: "A", description: "x".repeat(501) }] },
+        "methodology step 1 description must be at most 500 characters",
+      ],
+      [
+        {
+          ...valid,
+          methodology: [
+            { id: "a", name: "A", description: "" },
+            { id: "a", name: "B", description: "" },
+          ],
+        },
+        "methodology has a duplicate step id: a",
+      ],
+    ];
+    for (const [input, message] of cases) {
+      expect(thrownData(input)).toBe(message);
     }
   });
 });
