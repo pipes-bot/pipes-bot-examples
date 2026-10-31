@@ -71,10 +71,10 @@ function SignedInShell() {
           <Link to="/" activeOptions={{ exact: true }} activeProps={{ className: "font-medium" }}>
             Overview
           </Link>
-          {/* /numbers and /settings are added in later tasks, so the typed route tree lacks them. */}
-          <Link to={"/numbers" as "/"} activeProps={{ className: "font-medium" }}>
+          <Link to="/numbers" activeProps={{ className: "font-medium" }}>
             Numbers
           </Link>
+          {/* TODO(Task 12): /settings is added later, so the typed route tree lacks it. */}
           <Link to={"/settings" as "/"} activeProps={{ className: "font-medium" }}>
             Settings
           </Link>
