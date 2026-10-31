@@ -17,6 +17,12 @@ Then follow the "Run locally" section of that example's README.
 
 <!-- examples:start -->
 
+### Starters
+
+| Example | Stack | pipes.bot features | Description |
+| --- | --- | --- | --- |
+| [with-hono-bun](./with-hono-bun) | hono, bun, typescript | webhooks, sandbox, byon-v2 | Receive and reply to WhatsApp messages with a single Hono file on Bun |
+
 <!-- examples:end -->
 
 ## Testing without a phone
@@ -29,17 +35,17 @@ You can exercise a webhook starter without a WhatsApp number or a pipes.bot acco
    pnpm mock-api
    ```
 
-2. In another terminal, start a starter pointed at the mock API. Replace `<folder>` with the starter's directory and follow its README for the install and start commands:
+2. In another terminal, start a starter pointed at the mock API. This uses [`with-hono-bun`](./with-hono-bun) as the example; the other starters follow the same pattern (see their READMEs for install and start commands):
 
    ```bash
-   cd <folder>
-   PIPES_API_BASE_URL=http://localhost:4010 PIPES_API_KEY=ak_test PIPES_WEBHOOK_SECRET=whsec_test PORT=3000 <start command>
+   cd with-hono-bun && bun install
+   PIPES_API_BASE_URL=http://localhost:4010 PIPES_API_KEY=ak_test_key PIPES_WEBHOOK_SECRET=whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw bun run index.ts
    ```
 
 3. Send a signed fixture to the starter's webhook. The secret must match the one the starter uses:
 
    ```bash
-   pnpm simulate byon-v2/message-text --url http://localhost:3000/webhook --secret whsec_test
+   pnpm simulate byon-v2/message-text --url http://localhost:3000/webhook --secret whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw
    ```
 
 Fixtures live in [`fixtures/`](./fixtures). `byon-v2/*` fixtures are API v2 envelopes for BYON apps (`ak_` keys). `sandbox/*` fixtures use the legacy payload for sandbox numbers (`pk_` keys). See [`fixtures/README.md`](./fixtures/README.md) for the full list.
