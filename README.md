@@ -24,6 +24,7 @@ Then follow the "Run locally" section of that example's README.
 | [with-fastapi](./with-fastapi) | fastapi, python | webhooks, sandbox, byon-v2 | Receive and reply to WhatsApp messages with a single FastAPI file |
 | [with-hono-bun](./with-hono-bun) | hono, bun, typescript | webhooks, sandbox, byon-v2 | Receive and reply to WhatsApp messages with a single Hono file on Bun |
 | [with-nextjs-route-handler](./with-nextjs-route-handler) | nextjs, typescript, vercel | webhooks, sandbox, byon-v2 | Receive and reply to WhatsApp messages with a single Next.js route handler, ready for Vercel |
+| [with-websocket-node](./with-websocket-node) | nodejs, typescript, ws | websocket, sandbox, byon-v2 | Receive and reply to WhatsApp messages over a WebSocket connection, no public URL needed |
 
 <!-- examples:end -->
 
