@@ -10,9 +10,12 @@
     "simulate": "node scripts/simulate-webhook.ts",
     "mock-api": "node scripts/mock-pipes-api.ts",
     "smoke": "node scripts/smoke.ts",
-    "fixtures:sync": "node scripts/sync-fixtures.ts"
+    "fixtures:sync": "node scripts/sync-fixtures.ts",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3",
     "yaml": "^2.8.0"
   }
 }
