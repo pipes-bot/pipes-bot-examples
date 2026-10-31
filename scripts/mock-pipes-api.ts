@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
 export type MockCall = { path: string; authorization: string | null; body: any };
@@ -28,7 +28,7 @@ export async function startMockApi(
   let failNext = false;
   let counter = 0;
 
-  const server = createServer(async (req, res) => {
+  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
     const json = (status: number, payload: unknown) => {
       res.writeHead(status, { "Content-Type": "application/json" });
@@ -62,6 +62,18 @@ export async function startMockApi(
       return json(200, { success: true, messageId, conversationId: body?.conversationId });
     }
     return json(200, { messageId, contacts: [{ input: body?.to, wa_id: body?.to }] });
+  }
+
+  // Single guard: aborted bodies, malformed targets or a throwing onCall must never crash the mock.
+  const server = createServer((req, res) => {
+    handle(req, res).catch(() => {
+      if (res.headersSent || res.destroyed) {
+        res.destroy();
+        return;
+      }
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "bad request" }));
+    });
   });
 
   await new Promise<void>((resolve, reject) => {

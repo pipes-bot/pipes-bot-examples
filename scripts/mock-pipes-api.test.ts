@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { connect } from "node:net";
 import { after, before, describe, it } from "node:test";
 import { startMockApi, type MockApi } from "./mock-pipes-api.ts";
 
@@ -71,6 +72,7 @@ describe("mock pipes.bot API", () => {
   });
 
   it("returns 404 for unknown paths and wrong methods", async () => {
+    api.clear();
     assert.equal((await post("/v1/unknown", {})).status, 404);
     assert.equal((await fetch(api.url + "/v1/messages/send")).status, 404);
     assert.deepEqual(api.calls(), []);
@@ -86,5 +88,34 @@ describe("mock pipes.bot API", () => {
     assert.equal((await post("/v1/messages/send", {})).status, 500);
     assert.equal((await fetch(api.url + "/__calls", { method: "DELETE" })).status, 200);
     assert.deepEqual(api.calls(), []);
+  });
+
+  const rawRequest = (request: string, destroyAfterWrite = false) =>
+    new Promise<string>((resolve) => {
+      const { port } = new URL(api.url);
+      const socket = connect(Number(port), "127.0.0.1", () => {
+        socket.write(request);
+        if (destroyAfterWrite) socket.destroy();
+      });
+      let received = "";
+      socket.on("data", (chunk) => (received += chunk));
+      socket.on("error", () => {});
+      socket.on("close", () => resolve(received));
+    });
+
+  it("survives a malformed request target", async () => {
+    const response = await rawRequest("GET // HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+    assert.ok(response === "" || response.startsWith("HTTP/1.1 400"), response);
+    assert.equal((await post("/v1/messages/send", { conversationId: "after" })).status, 200);
+  });
+
+  it("survives a client that aborts mid-body", async () => {
+    api.clear();
+    await rawRequest(
+      "POST /v1/messages/send HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n{\"part",
+      true,
+    );
+    assert.equal((await post("/v1/messages/send", { conversationId: "after" })).status, 200);
+    assert.equal(api.calls().length, 1);
   });
 });
