@@ -74,8 +74,7 @@ function SignedInShell() {
           <Link to="/numbers" activeProps={{ className: "font-medium" }}>
             Numbers
           </Link>
-          {/* TODO(Task 12): /settings is added later, so the typed route tree lacks it. */}
-          <Link to={"/settings" as "/"} activeProps={{ className: "font-medium" }}>
+          <Link to="/settings" activeProps={{ className: "font-medium" }}>
             Settings
           </Link>
           <Button variant="ghost" size="sm" className="ml-auto" onClick={signOut}>

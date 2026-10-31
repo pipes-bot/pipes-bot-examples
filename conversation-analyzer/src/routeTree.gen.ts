@@ -13,6 +13,8 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppConversationsConversationIdRouteImport } from './routes/_app/conversations/$conversationId'
 import { Route as AppNumbersIndexRouteImport } from './routes/_app/numbers/index'
 import { Route as AppNumbersNumberIdRouteImport } from './routes/_app/numbers/$numberId'
 import { Route as AppNumbersConnectedRouteImport } from './routes/_app/numbers/connected'
@@ -36,6 +38,17 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppConversationsConversationIdRoute =
+  AppConversationsConversationIdRouteImport.update({
+    id: '/conversations/$conversationId',
+    path: '/conversations/$conversationId',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppNumbersIndexRoute = AppNumbersIndexRouteImport.update({
   id: '/numbers/',
   path: '/numbers/',
@@ -56,6 +69,8 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/settings': typeof AppSettingsRoute
+  '/conversations/$conversationId': typeof AppConversationsConversationIdRoute
   '/numbers/$numberId': typeof AppNumbersNumberIdRoute
   '/numbers/connected': typeof AppNumbersConnectedRoute
   '/numbers/': typeof AppNumbersIndexRoute
@@ -63,7 +78,9 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/settings': typeof AppSettingsRoute
   '/': typeof AppIndexRoute
+  '/conversations/$conversationId': typeof AppConversationsConversationIdRoute
   '/numbers/$numberId': typeof AppNumbersNumberIdRoute
   '/numbers/connected': typeof AppNumbersConnectedRoute
   '/numbers': typeof AppNumbersIndexRoute
@@ -73,7 +90,9 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/conversations/$conversationId': typeof AppConversationsConversationIdRoute
   '/_app/numbers/$numberId': typeof AppNumbersNumberIdRoute
   '/_app/numbers/connected': typeof AppNumbersConnectedRoute
   '/_app/numbers/': typeof AppNumbersIndexRoute
@@ -84,6 +103,8 @@ export interface FileRouteTypes {
     | '/'
     | '/sign-in'
     | '/sign-up'
+    | '/settings'
+    | '/conversations/$conversationId'
     | '/numbers/$numberId'
     | '/numbers/connected'
     | '/numbers/'
@@ -91,7 +112,9 @@ export interface FileRouteTypes {
   to:
     | '/sign-in'
     | '/sign-up'
+    | '/settings'
     | '/'
+    | '/conversations/$conversationId'
     | '/numbers/$numberId'
     | '/numbers/connected'
     | '/numbers'
@@ -100,7 +123,9 @@ export interface FileRouteTypes {
     | '/_app'
     | '/sign-in'
     | '/sign-up'
+    | '/_app/settings'
     | '/_app/'
+    | '/_app/conversations/$conversationId'
     | '/_app/numbers/$numberId'
     | '/_app/numbers/connected'
     | '/_app/numbers/'
@@ -142,6 +167,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/conversations/$conversationId': {
+      id: '/_app/conversations/$conversationId'
+      path: '/conversations/$conversationId'
+      fullPath: '/conversations/$conversationId'
+      preLoaderRoute: typeof AppConversationsConversationIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/numbers/': {
       id: '/_app/numbers/'
       path: '/numbers'
@@ -167,14 +206,18 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppConversationsConversationIdRoute: typeof AppConversationsConversationIdRoute
   AppNumbersNumberIdRoute: typeof AppNumbersNumberIdRoute
   AppNumbersConnectedRoute: typeof AppNumbersConnectedRoute
   AppNumbersIndexRoute: typeof AppNumbersIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
+  AppConversationsConversationIdRoute: AppConversationsConversationIdRoute,
   AppNumbersNumberIdRoute: AppNumbersNumberIdRoute,
   AppNumbersConnectedRoute: AppNumbersConnectedRoute,
   AppNumbersIndexRoute: AppNumbersIndexRoute,

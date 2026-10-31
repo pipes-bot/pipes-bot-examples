@@ -4,6 +4,7 @@ import { ConvexReactClient } from "convex/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
+import { Toaster } from "./components/ui/sonner";
 import { authClient } from "./lib/auth-client";
 import { routeTree } from "./routeTree.gen";
 
@@ -25,6 +26,7 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ConvexBetterAuthProvider client={convex} authClient={providerAuthClient}>
       <RouterProvider router={router} />
+      <Toaster />
     </ConvexBetterAuthProvider>
   </StrictMode>,
 );
