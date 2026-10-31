@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { MethodologyEditor, type EditableStep } from "@/components/MethodologyEditor";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -22,21 +22,41 @@ function SettingsPage() {
   return <SettingsForm workspace={workspace} />;
 }
 
+function toEditable(workspace: Doc<"workspaces">): EditableStep[] {
+  return workspace.methodology.map((step) => ({ ...step, key: step.id }));
+}
+
 // Mounted only once the workspace has loaded, so the initial state comes from it exactly once.
+// After a successful save the form is rebuilt from the stored workspace (server-assigned step ids,
+// trimmed text); edits made while the save is in flight are not touched until it succeeds.
 function SettingsForm({ workspace }: { workspace: Doc<"workspaces"> }) {
   const updateSettings = useMutation(api.workspaces.updateSettings);
   const [name, setName] = useState(workspace.name);
   const [inactivityMinutes, setInactivityMinutes] = useState(String(workspace.inactivityMinutes));
-  const [steps, setSteps] = useState<EditableStep[]>(() =>
-    workspace.methodology.map((step) => ({ ...step, key: step.id })),
-  );
+  const [steps, setSteps] = useState<EditableStep[]>(() => toEditable(workspace));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const latest = useRef(workspace);
+  const resyncPending = useRef(false);
+
+  function resync(from: Doc<"workspaces">) {
+    setName(from.name);
+    setInactivityMinutes(String(from.inactivityMinutes));
+    setSteps(toEditable(from));
+  }
+
+  useEffect(() => {
+    latest.current = workspace;
+    if (!resyncPending.current) return;
+    resyncPending.current = false;
+    resync(workspace);
+  }, [workspace]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setSaving(true);
+    const before = latest.current;
     try {
       await updateSettings({
         name,
@@ -44,6 +64,9 @@ function SettingsForm({ workspace }: { workspace: Doc<"workspaces"> }) {
         methodology: steps.map(({ id, name, description }) => ({ id, name, description })),
       });
       toast.success("Settings saved");
+      // The updated workspace may already have arrived, or arrives on the next render.
+      if (latest.current !== before) resync(latest.current);
+      else resyncPending.current = true;
     } catch (e) {
       setError(errorMessage(e));
     } finally {
