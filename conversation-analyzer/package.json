@@ -13,8 +13,10 @@
   "dependencies": {
     "@convex-dev/better-auth": "0.12.6",
     "@fontsource-variable/geist": "^5.3.0",
+    "@openrouter/ai-sdk-provider": "^3.1.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-router": "^1.170.46",
+    "ai": "^7.0.158",
     "better-auth": "~1.6.33",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.1",

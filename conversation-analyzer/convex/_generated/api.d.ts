@@ -8,12 +8,14 @@
  * @module
  */
 
+import type * as analysis from "../analysis.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as http from "../http.js";
 import type * as lib_evaluation from "../lib/evaluation.js";
 import type * as lib_methodology from "../lib/methodology.js";
 import type * as lib_metrics from "../lib/metrics.js";
+import type * as lib_model from "../lib/model.js";
 import type * as lib_payload from "../lib/payload.js";
 import type * as lib_signature from "../lib/signature.js";
 import type * as lib_stats from "../lib/stats.js";
@@ -27,12 +29,14 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  analysis: typeof analysis;
   auth: typeof auth;
   authz: typeof authz;
   http: typeof http;
   "lib/evaluation": typeof lib_evaluation;
   "lib/methodology": typeof lib_methodology;
   "lib/metrics": typeof lib_metrics;
+  "lib/model": typeof lib_model;
   "lib/payload": typeof lib_payload;
   "lib/signature": typeof lib_signature;
   "lib/stats": typeof lib_stats;
