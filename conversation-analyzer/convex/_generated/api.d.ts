@@ -11,6 +11,7 @@
 import type * as analysis from "../analysis.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
+import type * as conversations from "../conversations.js";
 import type * as http from "../http.js";
 import type * as lib_evaluation from "../lib/evaluation.js";
 import type * as lib_methodology from "../lib/methodology.js";
@@ -32,6 +33,7 @@ declare const fullApi: ApiFromModules<{
   analysis: typeof analysis;
   auth: typeof auth;
   authz: typeof authz;
+  conversations: typeof conversations;
   http: typeof http;
   "lib/evaluation": typeof lib_evaluation;
   "lib/methodology": typeof lib_methodology;
