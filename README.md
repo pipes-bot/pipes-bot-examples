@@ -21,6 +21,7 @@ Then follow the "Run locally" section of that example's README.
 
 | Example | Stack | pipes.bot features | Description |
 | --- | --- | --- | --- |
+| [with-fastapi](./with-fastapi) | fastapi, python | webhooks, sandbox, byon-v2 | Receive and reply to WhatsApp messages with a single FastAPI file |
 | [with-hono-bun](./with-hono-bun) | hono, bun, typescript | webhooks, sandbox, byon-v2 | Receive and reply to WhatsApp messages with a single Hono file on Bun |
 
 <!-- examples:end -->
