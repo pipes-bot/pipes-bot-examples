@@ -12,6 +12,7 @@ import type * as analysis from "../analysis.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as conversations from "../conversations.js";
+import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
 import type * as lib_evaluation from "../lib/evaluation.js";
@@ -22,6 +23,7 @@ import type * as lib_payload from "../lib/payload.js";
 import type * as lib_signature from "../lib/signature.js";
 import type * as lib_stats from "../lib/stats.js";
 import type * as lib_transcript from "../lib/transcript.js";
+import type * as numbers from "../numbers.js";
 import type * as webhook from "../webhook.js";
 import type * as workspaces from "../workspaces.js";
 
@@ -36,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authz: typeof authz;
   conversations: typeof conversations;
+  crons: typeof crons;
   http: typeof http;
   ingest: typeof ingest;
   "lib/evaluation": typeof lib_evaluation;
@@ -46,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   "lib/signature": typeof lib_signature;
   "lib/stats": typeof lib_stats;
   "lib/transcript": typeof lib_transcript;
+  numbers: typeof numbers;
   webhook: typeof webhook;
   workspaces: typeof workspaces;
 }>;
