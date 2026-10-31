@@ -29,6 +29,8 @@ const isDuplicate = (id: string) => {
   return false;
 };
 
+const list = (value: unknown): any[] => (Array.isArray(value) ? value : []);
+
 const safeEqual = (a: string, b: string) => {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
@@ -48,7 +50,8 @@ function verifyByon(req: Request, body: string) {
   const timestamp = req.headers.get("webhook-timestamp");
   const signatures = req.headers.get("webhook-signature");
   if (!id || !timestamp || !signatures) return false;
-  if (!(Math.abs(Date.now() / 1000 - Number(timestamp)) <= 300)) return false; // also rejects NaN
+  // Integer seconds only (at most 12 ASCII digits), at most 5 minutes off.
+  if (!/^[0-9]{1,12}$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
   const key = Buffer.from(secret.replace(/^whsec_/, ""), "base64");
   const expected = createHmac("sha256", key).update(`${id}.${timestamp}.${body}`).digest("base64");
   return signatures.split(" ").some((entry) => {
@@ -83,17 +86,21 @@ app.post("/webhook", async (c) => {
   } catch {
     return c.text("invalid JSON", 400);
   }
-  if (event?.test === true || event?.event === "test") return c.text("ok");
+  if (typeof event !== "object" || event === null || Array.isArray(event)) {
+    return c.text("invalid payload", 400); // null, a list, a number: rejected before dedup
+  }
+  if (event.test === true || event.event === "test") return c.text("ok");
 
   if (mode === "sandbox") {
-    const messages = event.entry?.[0]?.changes?.[0]?.value?.messages ?? [];
-    for (const message of messages) {
-      if (isDuplicate(message.id)) console.log(`duplicate ${message.id}`);
-      else if (message.type !== "text") console.log(`skipped ${message.type} ${message.id}`);
+    for (const message of list(event.entry?.[0]?.changes?.[0]?.value?.messages)) {
+      const id = message?.id;
+      if (typeof id !== "string") console.log("skipped missing-id -"); // nothing to dedup on, so nothing is answered
+      else if (isDuplicate(id)) console.log(`duplicate ${id}`);
+      else if (message.type !== "text") console.log(`skipped ${message.type} ${id}`);
       else {
-        console.log(`received message ${message.id}`);
+        console.log(`received message ${id}`);
         const text = `Echo: ${message.text?.body ?? ""}`;
-        reply("/v1/messages/send", { conversationId: event.pipes?.conversationId, text }, message.id);
+        reply("/v1/messages/send", { conversationId: event.pipes?.conversationId, text }, id);
       }
     }
   } else {
@@ -102,12 +109,12 @@ app.post("/webhook", async (c) => {
     else if (event.field !== "messages") console.log(`skipped ${event.field} ${id}`);
     else {
       console.log(`received message ${id}`);
-      for (const message of event.whatsapp?.messages ?? []) {
-        if (message.type !== "text") {
-          console.log(`skipped ${message.type} ${message.id}`);
+      for (const message of list(event.whatsapp?.messages)) {
+        if (message?.type !== "text") {
+          console.log(`skipped ${message?.type} ${message?.id}`);
           continue;
         }
-        const to = message.from ?? message.from_user_id; // BSUID users may have no phone
+        const to = typeof message.from === "string" && message.from ? message.from : message.from_user_id; // BSUID users may have no phone
         const text = `Echo: ${message.text?.body ?? ""}`;
         reply("/v1/messages/app/send", { poolNumberId: event.pipes?.poolNumberId, to, text }, message.id);
       }

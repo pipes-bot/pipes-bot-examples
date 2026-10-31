@@ -45,6 +45,10 @@ def is_duplicate(key: str) -> bool:
     return duplicate
 
 
+def as_list(value) -> list:  # a non-list `messages` is treated as empty instead of raising
+    return value if isinstance(value, list) else []
+
+
 def dig(value, *path):  # safe lookup through dicts and lists: None instead of an exception
     for key in path:
         try:
@@ -102,7 +106,7 @@ async def webhook(request: Request, tasks: BackgroundTasks):
     if event.get("test") is True or event.get("event") == "test":
         return PlainTextResponse("ok")
     if mode == "sandbox":
-        for message in dig(event, "entry", 0, "changes", 0, "value", "messages") or []:
+        for message in as_list(dig(event, "entry", 0, "changes", 0, "value", "messages")):
             msg_id, kind = dig(message, "id"), dig(message, "type")
             if not isinstance(msg_id, str):
                 log("skipped missing-id -")  # nothing to dedup on, so nothing is answered
@@ -123,12 +127,13 @@ async def webhook(request: Request, tasks: BackgroundTasks):
             log(f"skipped {event.get('field')} {webhook_id}")
         else:
             log(f"received message {webhook_id}")
-            for message in dig(event, "whatsapp", "messages") or []:
+            for message in as_list(dig(event, "whatsapp", "messages")):
                 msg_id, kind = dig(message, "id"), dig(message, "type")
                 if kind != "text":
                     log(f"skipped {kind} {msg_id}")
                     continue
-                to = message.get("from") or message.get("from_user_id")  # BSUID users may have no phone
+                sender = message.get("from")
+                to = sender if isinstance(sender, str) and sender else message.get("from_user_id")  # BSUID users may have no phone
                 payload = {"poolNumberId": dig(event, "pipes", "poolNumberId"), "to": to}
                 payload["text"] = f"Echo: {dig(message, 'text', 'body') or ''}"
                 tasks.add_task(send, "/v1/messages/app/send", payload, msg_id)

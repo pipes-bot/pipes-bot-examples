@@ -41,7 +41,7 @@ cloudflared tunnel --url http://localhost:3000
 ngrok http 3000
 ```
 
-No phone or account yet? Use the mock API and webhook simulator from the [root README](../README.md#testing-without-a-phone).
+No phone or account yet? Use the mock API and webhook simulator from the [root README](https://github.com/pipes-bot/examples#testing-without-a-phone).
 
 | Variable | Description |
 | --- | --- |
@@ -58,10 +58,10 @@ Any host that runs Bun works (a VPS, Railway, Fly.io, Render). Set the environme
 
 1. `PIPES_API_KEY` picks the mode at startup. A missing or unknown key exits with an error. BYON without `PIPES_WEBHOOK_SECRET` also exits.
 2. The handler reads the raw body with `c.req.text()` before parsing, because the signature covers the exact bytes.
-3. The signature is checked with `node:crypto` and `timingSafeEqual`. Sandbox: hex HMAC-SHA256 of the body with the raw secret. BYON v2: HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`, keyed with the base64-decoded `whsec_` secret. Any `v1,` entry in the header may match (secret rotation) and timestamps more than 5 minutes off are rejected. Invalid signature returns 401, invalid JSON returns 400.
+3. The signature is checked with `node:crypto` and `timingSafeEqual`. Sandbox: hex HMAC-SHA256 of the body with the raw secret. BYON v2: HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`, keyed with the base64-decoded `whsec_` secret. Any `v1,` entry in the header may match (secret rotation) and timestamps that are not integer seconds, or are more than 5 minutes off, are rejected. Invalid signature returns 401, invalid JSON returns 400, and a JSON body that is not an object returns 400 `invalid payload`.
 4. Test payloads (`{"test": true}` or `{"event": "test"}`) get a 200 and nothing else.
-5. Duplicates are dropped using the message id (sandbox) or `webhook-id` (BYON).
-6. Only text messages are answered. In v2 the envelope must have `field: "messages"`. Statuses, echoes and system events are skipped, so the bot never answers itself. The recipient is `message.from ?? message.from_user_id`.
+5. Duplicates are dropped using the message id (sandbox) or `webhook-id` (BYON). A sandbox message without an `id` is skipped, since there is nothing to deduplicate on.
+6. Only text messages are answered. In v2 the envelope must have `field: "messages"`. Statuses, echoes and system events are skipped, so the bot never answers itself. The recipient is `message.from` when it is a non-empty string, otherwise `message.from_user_id`.
 7. The handler returns 200 first. The reply is sent by a promise that is not awaited, with a `.catch` that logs failures, so a failed send never crashes the server or blocks the next message.
 
 Log lines: `received <kind> <id>`, `replied <id>`, `skipped <reason> <id>`, `duplicate <id>`.
@@ -71,4 +71,4 @@ Log lines: `received <kind> <id>`, `replied <id>`, `skipped <reason> <id>`, `dup
 - **Sandbox limits.** The sandbox number is shared, there are no templates and you can only reply inside the 24-hour customer window.
 - **Move to BYON v2.** Use an `ak_` API key, the `whsec_` signing secret of your App, the v2 envelope and the `app/send` endpoint. This starter already handles both.
 - **Persist deduplication.** The in-memory `Set` is capped at 1000 entries and resets on restart. Store processed ids in your database.
-- **More.** Full apps live in the [examples repo](../README.md). See [docs.pipes.bot](https://docs.pipes.bot) for webhooks, sending messages and BYON setup.
+- **More.** Full apps live in the [examples repo](https://github.com/pipes-bot/examples). See [docs.pipes.bot](https://docs.pipes.bot) for webhooks, sending messages and BYON setup.

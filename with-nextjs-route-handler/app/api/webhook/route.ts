@@ -116,7 +116,7 @@ export async function POST(req: Request) {
           console.log(`skipped ${message?.type} ${message?.id}`);
           continue;
         }
-        const to = message.from ?? message.from_user_id; // BSUID users may have no phone
+        const to = typeof message.from === "string" && message.from ? message.from : message.from_user_id; // BSUID users may have no phone
         const text = `Echo: ${message.text?.body ?? ""}`;
         reply("/v1/messages/app/send", { poolNumberId: event.pipes?.poolNumberId, to, text }, message.id);
       }
