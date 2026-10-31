@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tooling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm readme:check
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+      - uses: astral-sh/setup-uv@v6
+      - run: pnpm install --frozen-lockfile
+      - name: Install with-hono-bun
+        run: bun install --frozen-lockfile
+        working-directory: with-hono-bun
+      - name: Install with-fastapi
+        run: uv sync --locked
+        working-directory: with-fastapi
+      - name: Install with-nextjs-route-handler
+        run: pnpm install --frozen-lockfile
+        working-directory: with-nextjs-route-handler
+      - run: pnpm smoke
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+      - run: pnpm install --frozen-lockfile
+      - name: Install with-hono-bun
+        run: bun install --frozen-lockfile
+        working-directory: with-hono-bun
+      - name: Install with-nextjs-route-handler
+        run: pnpm install --frozen-lockfile
+        working-directory: with-nextjs-route-handler
+      - name: Install with-websocket-node
+        run: pnpm install --frozen-lockfile
+        working-directory: with-websocket-node
+      - name: Typecheck with-hono-bun
+        run: bun run typecheck
+        working-directory: with-hono-bun
+      # next-env.d.ts and route types are generated and gitignored.
+      - name: Typecheck with-nextjs-route-handler
+        run: |
+          pnpm exec next typegen
+          pnpm typecheck
+        working-directory: with-nextjs-route-handler
+      - name: Typecheck with-websocket-node
+        run: pnpm typecheck
+        working-directory: with-websocket-node
+      - name: Test with-websocket-node
+        run: pnpm test
+        working-directory: with-websocket-node
