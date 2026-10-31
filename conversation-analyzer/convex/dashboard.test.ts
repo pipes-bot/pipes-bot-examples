@@ -294,7 +294,7 @@ describe("conversation", () => {
     });
     expect(result.conversation._id).toBe(id);
     expect(result.contact?.name).toBe("Ana");
-    expect(result.number.displayName).toBe("Support");
+    expect(result.number?.displayName).toBe("Support");
     expect(result.messages.map((m) => m.wamid)).toEqual(["w1", "w2"]);
   });
 });

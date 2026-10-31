@@ -10,7 +10,7 @@ import systemUserChangedNumber from "../tests/fixtures/system-user-changed-numbe
 import systemUserChangedUserId from "../tests/fixtures/system-user-changed-user-id.json";
 import templateStatusUpdate from "../tests/fixtures/template-status-update.json";
 import { makeT } from "../tests/helpers";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { closeConversation } from "./conversations";
 import { ingestPayload } from "./ingest";
@@ -172,6 +172,29 @@ describe("ingest", () => {
         .first(),
     );
     expect(latest?.conversationId).toBe(current._id);
+  });
+
+  it("after a move, the old workspace's history stays with it", async () => {
+    const t = makeT();
+    const a = await seedWorkspace(t, "A");
+    const b = await seedWorkspace(t, "B");
+    await ingest(t, onboarded(POOL, a));
+    await ingest(t, envelope(messageText));
+    const [old] = await all(t, "conversations");
+    await ingest(t, onboarded(POOL, b));
+    const [number] = await all(t, "numbers");
+    expect((await t.run((ctx) => ctx.db.get(old._id)))?.status).toBe("closed");
+
+    const asA = t.withIdentity({ subject: "owner_A" });
+    const asB = t.withIdentity({ subject: "owner_B" });
+    expect((await asB.query(api.dashboard.overview, { days: 7, numberId: number._id })).total).toBe(0);
+    expect(
+      await asB.query(api.dashboard.conversations, { numberId: number._id, status: "closed" }),
+    ).toEqual([]);
+    expect((await asA.query(api.dashboard.overview, { days: 7 })).total).toBe(1);
+    const view = await asA.query(api.dashboard.conversation, { conversationId: old._id });
+    expect(view.conversation._id).toBe(old._id);
+    expect(view.number).toBeNull();
   });
 
   it("echo is never a customer message", async () => {

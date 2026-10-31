@@ -77,12 +77,19 @@ export async function recordMessage(
     { conversationId: conversation._id },
   );
 
+  // A message older than the newest stored one (out-of-order delivery) does not
+  // decide whose turn it is.
+  const isLatest = sentAt >= conversation.lastActivityAt;
   await ctx.db.patch(conversation._id, {
     lastActivityAt: Math.max(conversation.lastActivityAt, sentAt),
-    lastTurn: turn,
-    waitingSince:
-      turn === "customer" ? (conversation.waitingSince ?? sentAt) : undefined,
     closeJobId,
+    ...(isLatest
+      ? {
+          lastTurn: turn,
+          waitingSince:
+            turn === "customer" ? (conversation.waitingSince ?? sentAt) : undefined,
+        }
+      : {}),
   });
 }
 
@@ -189,7 +196,16 @@ export const closeIfIdle = internalMutation({
     const workspace = await ctx.db.get(conversation.workspaceId);
     if (!workspace) return null;
     const now = Date.now();
-    if (conversation.lastActivityAt + workspace.inactivityMinutes * 60_000 > now) return null;
+    const idleAt = conversation.lastActivityAt + workspace.inactivityMinutes * 60_000;
+    if (idleAt > now) {
+      // Not idle yet (the window was raised, or activity is ahead of the clock):
+      // check again when it would be, so the conversation still closes.
+      const closeJobId = await ctx.scheduler.runAt(idleAt, internal.conversations.closeIfIdle, {
+        conversationId,
+      });
+      await ctx.db.patch(conversationId, { closeJobId });
+      return null;
+    }
     await closeConversation(ctx, conversationId, now);
     return null;
   },

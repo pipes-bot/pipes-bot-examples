@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
 import { requireConversation, requireNumber, requireWorkspace } from "./authz";
@@ -22,10 +22,12 @@ export const overview = query({
     const since = Date.now() - days * DAY_MS;
     let closed: Doc<"conversations">[];
     if (numberId) {
-      await requireNumber(ctx, numberId);
+      const { workspace } = await requireNumber(ctx, numberId);
+      // A number can move between workspaces; its history stays with the old owner.
       closed = await ctx.db
         .query("conversations")
         .withIndex("by_number_closed_at", (q) => q.eq("numberId", numberId).gte("closedAt", since))
+        .filter((q) => q.eq(q.field("workspaceId"), workspace._id))
         .order("desc")
         .take(MAX_CONVERSATIONS);
     } else {
@@ -59,10 +61,11 @@ export const waiting = query({
   handler: async (ctx, { numberId }) => {
     let open: Doc<"conversations">[];
     if (numberId) {
-      await requireNumber(ctx, numberId);
+      const { workspace } = await requireNumber(ctx, numberId);
       open = await ctx.db
         .query("conversations")
         .withIndex("by_number_status_activity", (q) => q.eq("numberId", numberId).eq("status", "open"))
+        .filter((q) => q.eq(q.field("workspaceId"), workspace._id))
         .take(MAX_CONVERSATIONS);
     } else {
       const workspace = await requireWorkspace(ctx);
@@ -99,10 +102,11 @@ export const conversations = query({
     status: v.union(v.literal("open"), v.literal("closed")),
   },
   handler: async (ctx, { numberId, status }) => {
-    await requireNumber(ctx, numberId);
+    const { workspace } = await requireNumber(ctx, numberId);
     const rows = await ctx.db
       .query("conversations")
       .withIndex("by_number_status_activity", (q) => q.eq("numberId", numberId).eq("status", status))
+      .filter((q) => q.eq(q.field("workspaceId"), workspace._id))
       .order("desc")
       .take(MAX_LIST);
 
@@ -128,10 +132,11 @@ export const conversations = query({
 export const conversation = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, { conversationId }) => {
-    const { conversation } = await requireConversation(ctx, conversationId);
+    const { workspace, conversation } = await requireConversation(ctx, conversationId);
     const contact = await ctx.db.get(conversation.contactId);
-    const number = await ctx.db.get(conversation.numberId);
-    if (!number) throw new ConvexError("Not found");
+    const current = await ctx.db.get(conversation.numberId);
+    // The number may have moved to another workspace since; don't expose it.
+    const number = current?.workspaceId === workspace._id ? current : null;
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_conversation_sent_at", (q) => q.eq("conversationId", conversationId))

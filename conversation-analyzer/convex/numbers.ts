@@ -134,11 +134,14 @@ async function fetchHealth(poolNumberId: string, apiKey: string): Promise<Health
 export const checkHealth = internalAction({
   args: {},
   handler: async (ctx) => {
-    const apiKey = requireEnv("PIPES_API_KEY");
-    const numbers = await ctx.runQuery(internal.numbers.allNumbers, {});
+    const numbers = (await ctx.runQuery(internal.numbers.allNumbers, {})).filter((n) => !n.isDemo);
+    if (numbers.length === 0) return null;
+    // The hourly cron must not throw when the demo runs without pipes.bot credentials.
+    const apiKey = process.env.PIPES_API_KEY;
     for (const number of numbers) {
-      if (number.isDemo) continue;
-      const health = await fetchHealth(number.poolNumberId, apiKey);
+      const health: Health = apiKey
+        ? await fetchHealth(number.poolNumberId, apiKey)
+        : { state: "unknown", checkedAt: Date.now(), detail: "PIPES_API_KEY is not set" };
       await ctx.runMutation(internal.numbers.setHealth, { numberId: number._id, health });
     }
     return null;

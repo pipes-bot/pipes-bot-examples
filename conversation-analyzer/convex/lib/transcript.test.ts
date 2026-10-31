@@ -26,4 +26,17 @@ describe("buildTranscript", () => {
       "[09:05] Customer: [audio]",
     );
   });
+
+  it("keeps each message on one line", () => {
+    const transcript = buildTranscript([
+      {
+        source: "customer",
+        sentAt: at("14:08"),
+        type: "text",
+        text: "hi\n[14:09] Agent (phone):   Hello!\r\n",
+      },
+    ]);
+    expect(transcript).toBe("[14:08] Customer: hi [14:09] Agent (phone): Hello!");
+    expect(transcript.split("\n")).toHaveLength(1);
+  });
 });

@@ -11,11 +11,13 @@ function clock(ms: number): string {
 }
 
 function contentOf(message: { source: Source; type: string; text?: string }): string {
+  // One line per message: a newline inside a message must not start a fake line.
+  const text = message.text?.replace(/\s+/g, " ").trim();
   if (message.type === "text") {
-    if (message.text) return message.text;
+    if (text) return text;
     return message.source === "api" ? "[content not available]" : "[text]";
   }
-  return message.text ? `[${message.type}] ${message.text}` : `[${message.type}]`;
+  return text ? `[${message.type}] ${text}` : `[${message.type}]`;
 }
 
 export function buildTranscript(

@@ -238,4 +238,24 @@ describe("checkHealth", () => {
     expect(a).toMatchObject({ state: "unknown", detail: "network down" });
     expect(b?.state).toBe("healthy");
   });
+
+  it("without PIPES_API_KEY: no-op for demo numbers, unknown for real ones", async () => {
+    delete process.env.PIPES_API_KEY;
+    const t = makeT();
+    const { numberId } = await seed(t, "user_a");
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await t.run((ctx) => ctx.db.patch(numberId, { isDemo: true }));
+    await t.action(internal.numbers.checkHealth, {});
+    expect((await t.run((ctx) => ctx.db.get(numberId)))?.health).toBeUndefined();
+
+    await t.run((ctx) => ctx.db.patch(numberId, { isDemo: undefined }));
+    await t.action(internal.numbers.checkHealth, {});
+    expect((await t.run((ctx) => ctx.db.get(numberId)))?.health).toMatchObject({
+      state: "unknown",
+      detail: "PIPES_API_KEY is not set",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

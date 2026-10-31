@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
-import { closeConversation } from "./conversations";
+import { closeConversation, recordMessage } from "./conversations";
 import { DEFAULT_METHODOLOGY, type Step } from "./lib/methodology";
 import { makeT } from "../tests/helpers";
 
@@ -159,6 +159,68 @@ describe("closeIfIdle", () => {
     await t.mutation(internal.conversations.closeIfIdle, { conversationId });
     const conversation = await t.run((ctx) => ctx.db.get(conversationId));
     expect(conversation?.status).toBe("closed");
+  });
+
+  it("still closes after the inactivity window is raised", async () => {
+    const { t, workspaceId, numberId, contactId, conversationId } = await seed();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(conversationId, { status: "closed", closedAt: T0 });
+      const number = (await ctx.db.get(numberId))!;
+      await recordMessage(ctx, {
+        number,
+        contactId,
+        wamid: "wamid.new",
+        source: "customer",
+        type: "text",
+        text: "Anyone there?",
+        sentAt: Date.now(),
+      });
+      await ctx.db.patch(workspaceId, { inactivityMinutes: 240 });
+    });
+
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const [conversation] = (await t.run((ctx) => ctx.db.query("conversations").collect())).filter(
+      (c) => c._id !== conversationId,
+    );
+    expect(conversation.status).toBe("closed");
+    expect(conversation.closedAt).toBeGreaterThanOrEqual(T0 + 3_600_000 + 240 * 60_000);
+  });
+});
+
+describe("recordMessage", () => {
+  it("an older message arriving late does not change whose turn it is", async () => {
+    const { t, numberId, contactId, conversationId } = await seed();
+    const at = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(conversationId, { status: "closed", closedAt: T0 });
+      const number = (await ctx.db.get(numberId))!;
+      const message = { number, contactId, type: "text" };
+      await recordMessage(ctx, {
+        ...message,
+        wamid: "wamid.echo",
+        source: "phone",
+        text: "Done!",
+        sentAt: at + 60_000,
+      });
+      await recordMessage(ctx, {
+        ...message,
+        wamid: "wamid.retried",
+        source: "customer",
+        text: "Can you help?",
+        sentAt: at,
+      });
+    });
+
+    const open = await t.run((ctx) =>
+      ctx.db
+        .query("conversations")
+        .withIndex("by_contact_status", (q) => q.eq("contactId", contactId).eq("status", "open"))
+        .first(),
+    );
+    expect(open?.lastTurn).toBe("business");
+    expect(open?.waitingSince).toBeUndefined();
+    expect(open?.lastActivityAt).toBe(at + 60_000);
   });
 });
 

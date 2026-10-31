@@ -9,7 +9,7 @@ import { StepList } from "@/components/StepList";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { errorMessage, formatDateTime, formatDuration } from "@/lib/format";
+import { errorMessage, formatDateTime, formatDuration, useNow } from "@/lib/format";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 
@@ -34,6 +34,9 @@ function ConversationError({ error }: ErrorComponentProps) {
 
 type Conversation = Doc<"conversations">;
 
+/** A pending/running analysis older than this is treated as stuck and can be re-run. */
+const STUCK_AFTER_MS = 5 * 60_000;
+
 function ConversationPage() {
   const conversationId = Route.useParams().conversationId as Id<"conversations">;
   const data = useQuery(api.dashboard.conversation, { conversationId });
@@ -44,13 +47,19 @@ function ConversationPage() {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <Link
-          to="/numbers/$numberId"
-          params={{ numberId: number._id }}
-          className="text-sm text-muted-foreground hover:underline"
-        >
-          {number.displayName}
-        </Link>
+        {number ? (
+          <Link
+            to="/numbers/$numberId"
+            params={{ numberId: number._id }}
+            className="text-sm text-muted-foreground hover:underline"
+          >
+            {number.displayName}
+          </Link>
+        ) : (
+          <Link to="/numbers" className="text-sm text-muted-foreground hover:underline">
+            Numbers
+          </Link>
+        )}
         <h1 className="text-xl font-semibold">
           {contact?.name ?? contact?.waId ?? contact?.userId ?? "Unknown contact"}
         </h1>
@@ -107,7 +116,10 @@ function AnalysisCard({
   const retryAnalysis = useMutation(api.conversations.retryAnalysis);
   const reanalyze = useMutation(api.conversations.reanalyze);
   const [busy, setBusy] = useState(false);
+  const now = useNow(30_000);
   const analysis = conversation.analysis;
+  const inProgress = analysis?.state === "pending" || analysis?.state === "running";
+  const stuck = inProgress && now - analysis.requestedAt > STUCK_AFTER_MS;
 
   async function run(action: typeof retryAnalysis) {
     setBusy(true);
@@ -168,7 +180,7 @@ function AnalysisCard({
           <Button
             variant="outline"
             size="sm"
-            disabled={busy || analysis?.state === "pending" || analysis?.state === "running"}
+            disabled={busy || (inProgress && !stuck)}
             onClick={() => run(reanalyze)}
           >
             Re-analyze
