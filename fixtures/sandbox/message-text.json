@@ -1,0 +1,44 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "pool_number_id",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "+15551234567",
+              "phone_number_id": "pool_number_id"
+            },
+            "messages": [
+              {
+                "id": "msg_abc123",
+                "from": "15559876543",
+                "timestamp": "2025-01-15T10:30:00.000Z",
+                "type": "text",
+                "text": {
+                  "body": "Hello from WhatsApp!"
+                }
+              }
+            ],
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Jane Doe"
+                },
+                "wa_id": "15559876543"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ],
+  "pipes": {
+    "conversationId": "conv_xyz789",
+    "poolNumberId": "pool_number_id",
+    "label": "support"
+  }
+}

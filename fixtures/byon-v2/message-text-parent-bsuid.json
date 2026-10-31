@@ -1,0 +1,39 @@
+{
+  "id": "evt_3c4d5e6f708192a3b4c5d6e7f8091a2b",
+  "field": "messages",
+  "createdAt": "2025-06-08T20:59:44.512Z",
+  "pipes": {
+    "appId": "app_abc123",
+    "poolNumberId": "pn_abc123",
+    "media": {}
+  },
+  "whatsapp": {
+    "messaging_product": "whatsapp",
+    "metadata": {
+      "display_phone_number": "15550001111",
+      "phone_number_id": "106540352242922"
+    },
+    "contacts": [
+      {
+        "profile": {
+          "name": "Sheena Nelson",
+          "username": "@realsheenanelson"
+        },
+        "user_id": "US.13491208655302741918",
+        "parent_user_id": "US.ENT.11815799212886844830"
+      }
+    ],
+    "messages": [
+      {
+        "from_user_id": "US.13491208655302741918",
+        "from_parent_user_id": "US.ENT.11815799212886844830",
+        "id": "wamid.HBgLMTY1MDM4Nzk0MzkVAgASGBQzQTRBNjU5OUFFRTAzODEwMTQ0RgA=",
+        "timestamp": "1749416383",
+        "type": "text",
+        "text": {
+          "body": "Does it come in another color?"
+        }
+      }
+    ]
+  }
+}

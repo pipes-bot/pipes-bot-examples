@@ -1,0 +1,18 @@
+{
+  "name": "pipes-bot-examples",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --test \"scripts/**/*.test.ts\"",
+    "readme": "node scripts/generate-readme.ts",
+    "readme:check": "node scripts/generate-readme.ts --check",
+    "simulate": "node scripts/simulate.ts",
+    "mock-api": "node scripts/mock-api.ts",
+    "smoke": "node scripts/smoke.ts",
+    "fixtures:sync": "node scripts/sync-fixtures.ts"
+  },
+  "devDependencies": {
+    "yaml": "^2.8.0"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "pool_number_id",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "+15551234567",
+              "phone_number_id": "pool_number_id"
+            },
+            "messages": [
+              {
+                "id": "msg_img456",
+                "from": "15559876543",
+                "timestamp": "2025-01-15T10:30:00.000Z",
+                "type": "image",
+                "image": {
+                  "id": "media_id",
+                  "mime_type": "image/jpeg",
+                  "caption": "Check this out"
+                }
+              }
+            ],
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Jane Doe"
+                },
+                "wa_id": "15559876543"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ],
+  "pipes": {
+    "conversationId": "conv_xyz789",
+    "poolNumberId": "pool_number_id",
+    "media": {
+      "mediaId": "aBcDeFgHiJkLmNoPqRs1t",
+      "downloadUrl": "/v1/media/download/aBcDeFgHiJkLmNoPqRs1t",
+      "mimeType": "image/jpeg",
+      "byteSize": 245120
+    }
+  }
+}

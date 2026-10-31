@@ -1,0 +1,52 @@
+{
+  "id": "evt_5e6f708192a3b4c5d6e7f8091a2b3c4d",
+  "field": "messages",
+  "createdAt": "2025-06-08T20:59:44.512Z",
+  "pipes": {
+    "appId": "app_abc123",
+    "poolNumberId": "pn_abc123",
+    "media": {}
+  },
+  "whatsapp": {
+    "messaging_product": "whatsapp",
+    "metadata": {
+      "display_phone_number": "15550001111",
+      "phone_number_id": "106540352242922"
+    },
+    "contacts": [
+      {
+        "profile": {
+          "name": "Sheena Nelson",
+          "username": "@realsheenanelson"
+        },
+        "user_id": "US.13491208655302741918"
+      }
+    ],
+    "messages": [
+      {
+        "from_user_id": "US.13491208655302741918",
+        "id": "wamid.HBgLMTY1MDM4Nzk0MzkVAgASGBQ2QzlBRDI1MzBFN0JGMEFCMzQA",
+        "timestamp": "1749416383",
+        "type": "contacts",
+        "contacts": [
+          {
+            "origin": "contact_request",
+            "name": {
+              "formatted_name": "Sheena Nelson",
+              "first_name": "Sheena",
+              "last_name": "Nelson"
+            },
+            "phones": [
+              {
+                "phone": "+1 650-555-1234",
+                "wa_id": "16505551234",
+                "type": "CELL"
+              }
+            ],
+            "vcard": "QkVHSU46VkNBUkQKVkVSU0lPTjozLjAKTjpOZWxzb247U2hlZW5hOzs7CkZOOlNoZWVuYSBOZWxzb24KVEVMO3R5cGU9Q0VMTDt0eXBlPVZPSUNFO3dhaWQ9MTY1MDU1NTEyMzQ6KzEgNjUwLTU1NS0xMjM0CkVORDpWQ0FSRA=="
+          }
+        ]
+      }
+    ]
+  }
+}

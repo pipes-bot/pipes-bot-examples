@@ -1,0 +1,18 @@
+{
+  "id": "evt_a3b4c5d6e7f8091a2b3c4d5e6f708192",
+  "field": "message_template_status_update",
+  "createdAt": "2025-06-10T14:02:11.870Z",
+  "pipes": {
+    "appId": "app_abc123",
+    "poolNumberId": "pn_abc123",
+    "media": {}
+  },
+  "whatsapp": {
+    "event": "APPROVED",
+    "message_template_id": 1234567890123456,
+    "message_template_name": "order_shipped",
+    "message_template_language": "en_US",
+    "reason": null,
+    "message_template_category": "UTILITY"
+  }
+}
