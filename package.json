@@ -8,7 +8,7 @@
     "readme": "node scripts/generate-readme.ts",
     "readme:check": "node scripts/generate-readme.ts --check",
     "simulate": "node scripts/simulate-webhook.ts",
-    "mock-api": "node scripts/mock-api.ts",
+    "mock-api": "node scripts/mock-pipes-api.ts",
     "smoke": "node scripts/smoke.ts",
     "fixtures:sync": "node scripts/sync-fixtures.ts"
   },
