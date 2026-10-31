@@ -5,7 +5,7 @@ import { requireConversation, requireNumber, requireWorkspace } from "./authz";
 import { summarize } from "./lib/stats";
 
 const DAY_MS = 86_400_000;
-const MAX_CONVERSATIONS = 1000;
+export const MAX_CONVERSATIONS = 1000;
 const MAX_WAITING = 50;
 const MAX_LIST = 100;
 
@@ -26,6 +26,7 @@ export const overview = query({
       closed = await ctx.db
         .query("conversations")
         .withIndex("by_number_closed_at", (q) => q.eq("numberId", numberId).gte("closedAt", since))
+        .order("desc")
         .take(MAX_CONVERSATIONS);
     } else {
       const workspace = await requireWorkspace(ctx);
@@ -34,6 +35,7 @@ export const overview = query({
         .withIndex("by_workspace_closed_at", (q) =>
           q.eq("workspaceId", workspace._id).gte("closedAt", since),
         )
+        .order("desc")
         .take(MAX_CONVERSATIONS);
     }
     return summarize(closed);

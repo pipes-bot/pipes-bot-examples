@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
+import { MAX_CONVERSATIONS } from "./dashboard";
 import type { Id } from "./_generated/dataModel";
 import { makeT } from "../tests/helpers";
 
@@ -134,6 +135,50 @@ describe("overview", () => {
     const other = await asA.query(api.dashboard.overview, { days: 7, numberId: otherNumberId });
     expect(other.total).toBe(2);
     expect(other.avgScore).toBe(50);
+  });
+
+  it("keeps the most recent conversations when over the cap", async () => {
+    const t = makeT();
+    const s = await seed(t, "user_a");
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const base = {
+        workspaceId: s.workspaceId,
+        numberId: s.numberId,
+        contactId: s.contactId,
+        status: "closed" as const,
+        initiatedBy: "customer" as const,
+        openedAt: now - 5 * DAY,
+        lastActivityAt: now - 5 * DAY,
+        lastTurn: "business" as const,
+      };
+      const metrics = (answered: boolean) => ({
+        unansweredTurns: 0,
+        answered,
+        durationSeconds: 60,
+        counts: { customer: 1, phone: 1, api: 0 },
+      });
+      // The cap's worth of older unanswered conversations, then one newer answered one.
+      for (let i = 0; i < MAX_CONVERSATIONS; i++) {
+        await ctx.db.insert("conversations", {
+          ...base,
+          closedAt: now - 5 * DAY + i,
+          metrics: metrics(false),
+        });
+      }
+      await ctx.db.insert("conversations", {
+        ...base,
+        closedAt: now - 1000,
+        metrics: metrics(true),
+      });
+    });
+
+    const asA = t.withIdentity({ subject: "user_a" });
+    for (const args of [{ days: 7 as const }, { days: 7 as const, numberId: s.numberId }]) {
+      const result = await asA.query(api.dashboard.overview, args);
+      expect(result.total).toBe(MAX_CONVERSATIONS);
+      expect(result.answeredRate).toBe(1 / MAX_CONVERSATIONS);
+    }
   });
 
   it("does not include other workspaces", async () => {
