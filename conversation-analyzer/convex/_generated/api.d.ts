@@ -13,6 +13,7 @@ import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as conversations from "../conversations.js";
 import type * as http from "../http.js";
+import type * as ingest from "../ingest.js";
 import type * as lib_evaluation from "../lib/evaluation.js";
 import type * as lib_methodology from "../lib/methodology.js";
 import type * as lib_metrics from "../lib/metrics.js";
@@ -21,6 +22,7 @@ import type * as lib_payload from "../lib/payload.js";
 import type * as lib_signature from "../lib/signature.js";
 import type * as lib_stats from "../lib/stats.js";
 import type * as lib_transcript from "../lib/transcript.js";
+import type * as webhook from "../webhook.js";
 import type * as workspaces from "../workspaces.js";
 
 import type {
@@ -35,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   authz: typeof authz;
   conversations: typeof conversations;
   http: typeof http;
+  ingest: typeof ingest;
   "lib/evaluation": typeof lib_evaluation;
   "lib/methodology": typeof lib_methodology;
   "lib/metrics": typeof lib_metrics;
@@ -43,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   "lib/signature": typeof lib_signature;
   "lib/stats": typeof lib_stats;
   "lib/transcript": typeof lib_transcript;
+  webhook: typeof webhook;
   workspaces: typeof workspaces;
 }>;
 

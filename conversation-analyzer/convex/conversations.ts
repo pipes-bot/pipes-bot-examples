@@ -4,7 +4,86 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { requireConversation } from "./authz";
 import type { Step } from "./lib/methodology";
-import { computeMetrics } from "./lib/metrics";
+import { computeMetrics, type Source } from "./lib/metrics";
+
+const DEFAULT_INACTIVITY_MINUTES = 120;
+
+/**
+ * Stores one message and keeps its conversation's activity in step: opens a
+ * conversation when none is open, tracks whose turn it is and reschedules the
+ * idle close. A wamid that is already stored is skipped.
+ */
+export async function recordMessage(
+  ctx: MutationCtx,
+  input: {
+    number: Doc<"numbers">;
+    contactId: Id<"contacts">;
+    wamid: string;
+    source: Source;
+    type: string;
+    text?: string;
+    sentAt: number;
+  },
+): Promise<void> {
+  const { number, contactId, wamid, source, type, text, sentAt } = input;
+  const existing = await ctx.db
+    .query("messages")
+    .withIndex("by_wamid", (q) => q.eq("wamid", wamid))
+    .first();
+  if (existing) return;
+
+  const turn = source === "customer" ? "customer" : "business";
+  let conversation = await ctx.db
+    .query("conversations")
+    .withIndex("by_contact_status", (q) => q.eq("contactId", contactId).eq("status", "open"))
+    .first();
+  if (!conversation) {
+    const conversationId = await ctx.db.insert("conversations", {
+      workspaceId: number.workspaceId,
+      numberId: number._id,
+      contactId,
+      status: "open",
+      initiatedBy: turn,
+      openedAt: sentAt,
+      lastActivityAt: sentAt,
+      lastTurn: turn,
+    });
+    conversation = (await ctx.db.get(conversationId))!;
+  }
+
+  await ctx.db.insert("messages", {
+    conversationId: conversation._id,
+    wamid,
+    direction: source === "customer" ? "inbound" : "outbound",
+    source,
+    type,
+    text,
+    sentAt,
+  });
+
+  if (conversation.closeJobId) {
+    try {
+      await ctx.scheduler.cancel(conversation.closeJobId);
+    } catch {
+      // The job already ran or was canceled; nothing to cancel.
+    }
+  }
+  const workspace = await ctx.db.get(number.workspaceId);
+  const inactivityMinutes = workspace?.inactivityMinutes ?? DEFAULT_INACTIVITY_MINUTES;
+  const closeJobId = await ctx.scheduler.runAt(
+    Date.now() + inactivityMinutes * 60_000,
+    internal.conversations.closeIfIdle,
+    { conversationId: conversation._id },
+  );
+
+  await ctx.db.patch(conversation._id, {
+    lastActivityAt: Math.max(conversation.lastActivityAt, sentAt),
+    lastTurn: turn,
+    waitingSince:
+      turn === "customer" ? (conversation.waitingSince ?? sentAt) : undefined,
+    closeJobId,
+  });
+}
 
 export async function requestAnalysis(
   ctx: MutationCtx,
