@@ -36,6 +36,10 @@ Then follow the "Run locally" section of that example's README.
 
 <!-- examples:end -->
 
+## Running the apps
+
+The apps (`conversation-analyzer`, `mini-crm`, `ai-handoff`) keep their configuration on their Convex deployment, not in `.env` files. After `pnpm exec convex dev`, set at least `SITE_URL` and `BETTER_AUTH_SECRET` with `npx convex env set` before you open the app, even for the demo; otherwise sign-up fails with "Failed to fetch". Each app's README lists every variable under "Set the environment variables" and common errors under "Troubleshooting".
+
 ## Testing without a phone
 
 You can exercise a webhook starter without a WhatsApp number or a pipes.bot account. This repo ships a mock pipes.bot API and a webhook simulator. Run these from the repo root (`pnpm install` first).

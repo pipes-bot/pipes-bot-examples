@@ -44,40 +44,53 @@ pnpm exec convex dev        # creates a deployment, pushes the functions, writes
 
 On first run `convex dev` asks how to create the deployment. Without a Convex account, run `CONVEX_AGENT_MODE=anonymous pnpm exec convex dev` to get a local anonymous deployment. A local deployment is not reachable from the internet, so pipes.bot cannot deliver webhooks to it. That is enough for the demo seed and the simulator. To connect a real number you need a cloud dev deployment (`pnpm exec convex dev` while logged in).
 
-Set the Convex environment variables on the deployment (they are not read from `.env.example`):
+### Set the environment variables (before you sign in)
+
+The app reads its configuration from the Convex deployment, not from `.env.local`; `.env.example` only lists the variables for reference. Run these in this folder, against the deployment `convex dev` created. Each app has its own deployment, so set them again for every app you run.
 
 ```bash
+# Required, also for the demo
+npx convex env set SITE_URL http://localhost:5173
+npx convex env set BETTER_AUTH_SECRET "$(openssl rand -base64 32)"
+# Needed for a real number: signup links, webhooks, health checks
 npx convex env set PIPES_API_KEY ak_...
 npx convex env set PIPES_APP_SLUG your-app-slug
 npx convex env set PIPES_WEBHOOK_SECRET whsec_...
-npx convex env set SITE_URL http://localhost:5173
-npx convex env set BETTER_AUTH_SECRET "$(openssl rand -base64 32)"
 # Optional
 npx convex env set OPENROUTER_API_KEY sk-or-...
 npx convex env set OPENROUTER_MODEL anthropic/claude-sonnet-5.5
 npx convex env set PIPES_API_BASE_URL https://api.pipes.bot
 ```
 
+Check what is set with `npx convex env list`. `SITE_URL` and `BETTER_AUTH_SECRET` are needed even for the demo: without them, sign-up fails with "Failed to fetch" (see Troubleshooting below).
+
 | Variable | Where | Description |
 | --- | --- | --- |
+| `SITE_URL` | Convex | Exact origin of the web app, for example `http://localhost:5173`. Required, also for the demo. |
+| `BETTER_AUTH_SECRET` | Convex | Random secret for Better Auth. Generate it with `openssl rand -base64 32`. Required, also for the demo. |
 | `PIPES_API_KEY` | Convex | `ak_...` key of your App. Used to create signup links and check number health. Required to connect a real number. |
 | `PIPES_APP_SLUG` | Convex | Slug of your App, used to build the signup URL. Required to connect a real number. |
-| `PIPES_WEBHOOK_SECRET` | Convex | `whsec_...` secret of your App. Required. |
+| `PIPES_WEBHOOK_SECRET` | Convex | `whsec_...` secret of your App. Required to receive webhooks. |
 | `PIPES_API_BASE_URL` | Convex | Optional. Defaults to `https://api.pipes.bot`. |
-| `SITE_URL` | Convex | Exact origin of the web app, for example `http://localhost:5173`. Required. |
-| `BETTER_AUTH_SECRET` | Convex | Random secret for Better Auth. Generate it with `openssl rand -base64 32`. Required. |
 | `OPENROUTER_API_KEY` | Convex | Optional. Without it conversations are not analyzed (state `skipped`). |
 | `OPENROUTER_MODEL` | Convex | Optional. Defaults to `anthropic/claude-sonnet-5.5`. |
 | `VITE_CONVEX_URL` | `.env.local` | The `.convex.cloud` URL (or the local API URL). Written by `convex dev`. |
 | `VITE_CONVEX_SITE_URL` | `.env.local` | The `.convex.site` URL (or the local site proxy URL). Written by `convex dev`. |
 
-`PIPES_API_KEY` and `PIPES_APP_SLUG` can stay unset if you only use the demo seed and the simulator.
+The three `PIPES_*` secrets can stay unset if you only use the demo seed.
 
 Then start the web app and open http://localhost:5173:
 
 ```bash
 pnpm dev
 ```
+
+### Troubleshooting
+
+- **Sign-up or sign-in shows "Failed to fetch", and the browser's Network tab shows a CORS error on `/api/auth/...`.** `SITE_URL` or `BETTER_AUTH_SECRET` is not set on the deployment, or `SITE_URL` is not exactly the origin in the address bar (scheme, host and port, no trailing slash). Run `npx convex env list`, set the missing values and try again.
+- **`/webhooks/pipes` answers 500.** `PIPES_WEBHOOK_SECRET` is not set on the deployment. A 401 means the secret does not match the App's `whsec_` secret.
+- **Connecting a number fails.** `PIPES_API_KEY` or `PIPES_APP_SLUG` is not set, or the key is not the App's `ak_` key.
+- **Conversations stay in `skipped`.** `OPENROUTER_API_KEY` is not set, so nothing is analyzed.
 
 `pnpm test` runs the Convex functions against `convex-test`, `pnpm typecheck` checks the app and the functions, and `pnpm build` produces the static bundle. The webhook payloads in `tests/fixtures/` are copies of files in the repo's `fixtures/byon-v2/`, so this folder does not import anything from the repo root.
 

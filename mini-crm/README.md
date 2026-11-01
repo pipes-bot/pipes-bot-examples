@@ -107,7 +107,9 @@ pnpm exec convex dev        # creates a deployment, pushes the functions, writes
 
 On first run `convex dev` asks how to create the deployment. Without a Convex account, run `CONVEX_AGENT_MODE=anonymous pnpm exec convex dev` to get a local anonymous deployment. A local deployment is not reachable from the internet, so pipes.bot cannot deliver webhooks to it, and claude.ai and ChatGPT cannot reach its MCP URL. That is enough for the demo, the inbox and the OAuth smoke test. Claude Code should also be able to connect to it, but that was not tried. To connect a real number or a hosted MCP client you need a cloud dev deployment (`pnpm exec convex dev` while logged in).
 
-Set the Convex environment variables on the deployment (they are not read from `.env.example`):
+### Set the environment variables (before you sign in)
+
+The app reads its configuration from the Convex deployment, not from `.env.local`; `.env.example` only lists the variables for reference. Run these in this folder, against the deployment `convex dev` created. Each app has its own deployment, so set them again for every app you run.
 
 ```bash
 npx convex env set SITE_URL http://localhost:5173
@@ -119,6 +121,8 @@ npx convex env set PIPES_WEBHOOK_SECRET whsec_...
 # Optional
 npx convex env set PIPES_API_BASE_URL https://api.pipes.bot
 ```
+
+Check what is set with `npx convex env list`. `SITE_URL` and `BETTER_AUTH_SECRET` are needed even for the demo: without them, sign-up fails with "Failed to fetch" (see Troubleshooting below).
 
 | Variable | Where | Description |
 | --- | --- | --- |
@@ -138,7 +142,12 @@ Then start the web app and open http://localhost:5173:
 pnpm dev
 ```
 
-Don't change `BETTER_AUTH_SECRET` on a deployment that already has users. Better Auth encrypts the JWKS private key with it, so after a change sign-in and token exchange fail with "Failed to decrypt private key". On a local deployment, reset its data and start again, or put the old secret back.
+### Troubleshooting
+
+- **Sign-up or sign-in shows "Failed to fetch", and the browser's Network tab shows a CORS error on `/api/auth/...`.** `SITE_URL` or `BETTER_AUTH_SECRET` is not set on the deployment, or `SITE_URL` is not exactly the origin in the address bar (scheme, host and port, no trailing slash). Run `npx convex env list`, set the missing values and try again.
+- **`/webhooks/pipes` answers 500.** `PIPES_WEBHOOK_SECRET` is not set on the deployment. A 401 means the secret does not match the App's `whsec_` secret.
+- **Connecting a number fails.** `PIPES_API_KEY` or `PIPES_APP_SLUG` is not set, or the key is not the App's `ak_` key.
+- **Sign-in or token exchange fails with "Failed to decrypt private key".** `BETTER_AUTH_SECRET` changed on a deployment that already has users. Put the old secret back, or reset the deployment's data and start again.
 
 ### Checks
 
