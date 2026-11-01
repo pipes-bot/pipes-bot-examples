@@ -31,6 +31,7 @@ Then follow the "Run locally" section of that example's README.
 | Example | Stack | pipes.bot features | Description |
 | --- | --- | --- | --- |
 | [conversation-analyzer](./conversation-analyzer) | tanstack-router, convex, better-auth, openrouter, typescript | webhooks, byon-v2, embedded-signup, coexistence, echoes | Connect WhatsApp Business numbers, capture every reply sent from the phone, and score each conversation on response time and your support methodology |
+| [mini-crm](./mini-crm) | tanstack-router, convex, better-auth, mcp, typescript | webhooks, byon-v2, embedded-signup, coexistence, echoes, mcp | A WhatsApp CRM with a pipeline, an inbox and a built-in MCP server so Claude can read contacts, update the pipeline and draft replies |
 
 <!-- examples:end -->
 

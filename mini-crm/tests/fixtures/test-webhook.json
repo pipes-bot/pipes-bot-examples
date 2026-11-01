@@ -1,0 +1,9 @@
+{
+  "event": "test",
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "app": {
+    "id": "app_abc123",
+    "name": "My App"
+  },
+  "message": "This is a test webhook from Pipes.bot"
+}

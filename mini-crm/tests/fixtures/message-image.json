@@ -1,0 +1,48 @@
+{
+  "id": "evt_4d5e6f708192a3b4c5d6e7f8091a2b3c",
+  "field": "messages",
+  "createdAt": "2025-06-08T20:59:44.512Z",
+  "pipes": {
+    "appId": "app_abc123",
+    "poolNumberId": "pn_abc123",
+    "media": {
+      "1003383421387256": {
+        "mediaId": "aBcDeFgHiJkLmNoPqRs1t",
+        "downloadUrl": "/v1/media/download/aBcDeFgHiJkLmNoPqRs1t",
+        "mimeType": "image/jpeg",
+        "byteSize": 48213
+      }
+    }
+  },
+  "whatsapp": {
+    "messaging_product": "whatsapp",
+    "metadata": {
+      "display_phone_number": "15550001111",
+      "phone_number_id": "106540352242922"
+    },
+    "contacts": [
+      {
+        "profile": {
+          "name": "Sheena Nelson"
+        },
+        "wa_id": "16505551234",
+        "user_id": "US.13491208655302741918"
+      }
+    ],
+    "messages": [
+      {
+        "from": "16505551234",
+        "from_user_id": "US.13491208655302741918",
+        "id": "wamid.HBgLMTY1MDM4Nzk0MzkVAgASGBQ1QjhGQzE0MjE5RDZBRTlBMjMA",
+        "timestamp": "1749416383",
+        "type": "image",
+        "image": {
+          "caption": "Do you have this one in blue?",
+          "mime_type": "image/jpeg",
+          "sha256": "N4Ts1d9cU0tQdPZ2r8uC5n3o2kE8tHn6yq3tJjv0wTU=",
+          "id": "1003383421387256"
+        }
+      }
+    ]
+  }
+}

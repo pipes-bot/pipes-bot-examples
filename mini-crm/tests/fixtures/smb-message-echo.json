@@ -1,0 +1,36 @@
+{
+  "id": "evt_9704f2252ffc4c0ea3df9122362d4033",
+  "field": "smb_message_echoes",
+  "createdAt": "2026-10-24T14:38:59.607Z",
+  "pipes": {
+    "appId": "app_123",
+    "poolNumberId": "pn_123",
+    "media": {}
+  },
+  "whatsapp": {
+    "messaging_product": "whatsapp",
+    "metadata": {
+      "display_phone_number": "15550001111",
+      "phone_number_id": "123456789012345"
+    },
+    "contacts": [
+      {
+        "wa_id": "5511987654321",
+        "user_id": "BR.10293847561029384"
+      }
+    ],
+    "message_echoes": [
+      {
+        "from": "15550001111",
+        "to": "5511987654321",
+        "to_user_id": "BR.10293847561029384",
+        "id": "wamid.HBgUQlIuMTAyOTM4NDc1NjEwMjkzODQVFAARGCBBNTNC",
+        "timestamp": "1792852737",
+        "type": "text",
+        "text": {
+          "body": "Oi"
+        }
+      }
+    ]
+  }
+}
