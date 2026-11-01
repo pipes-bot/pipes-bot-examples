@@ -6,7 +6,7 @@
  *
  * Env: CONVEX_SITE_URL (default http://127.0.0.1:3211), CONVEX_URL (default http://127.0.0.1:3210),
  * SITE_URL (default http://localhost:5173).
- * Needs nothing beyond Node 22 (fetch, crypto). The browser half of the flow (the SPA's sign-in
+ * Needs nothing beyond Node 22.18+ (built-in TypeScript type stripping, fetch, crypto). The browser half of the flow (the SPA's sign-in
  * and consent pages) is simulated with SPA-origin requests that carry the `Better-Auth-Cookie`
  * header, which is what crossDomainClient() sends.
  *

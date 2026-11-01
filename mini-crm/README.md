@@ -96,7 +96,7 @@ Sending is plain text through `POST /v1/messages/app/send`, with `to` set to the
 
 ## Run locally
 
-Requires Node 22 and pnpm 11.
+Requires Node 22.18 or newer and pnpm 11.
 
 ```bash
 pnpm install
@@ -105,7 +105,7 @@ pnpm exec convex dev        # creates a deployment, pushes the functions, writes
 
 `convex dev` keeps running and pushes your function changes as you edit, so leave it open and run the commands below, and later `pnpm dev`, in a second terminal.
 
-On first run `convex dev` asks how to create the deployment. Without a Convex account, run `CONVEX_AGENT_MODE=anonymous pnpm exec convex dev` to get a local anonymous deployment. A local deployment is not reachable from the internet, so pipes.bot cannot deliver webhooks to it, and claude.ai and ChatGPT cannot reach its MCP URL. That is enough for the demo, the inbox, Claude Code and the OAuth smoke test. To connect a real number or a hosted MCP client you need a cloud dev deployment (`pnpm exec convex dev` while logged in).
+On first run `convex dev` asks how to create the deployment. Without a Convex account, run `CONVEX_AGENT_MODE=anonymous pnpm exec convex dev` to get a local anonymous deployment. A local deployment is not reachable from the internet, so pipes.bot cannot deliver webhooks to it, and claude.ai and ChatGPT cannot reach its MCP URL. That is enough for the demo, the inbox and the OAuth smoke test. Claude Code should also be able to connect to it, but that was not tried. To connect a real number or a hosted MCP client you need a cloud dev deployment (`pnpm exec convex dev` while logged in).
 
 Set the Convex environment variables on the deployment (they are not read from `.env.example`):
 
@@ -143,7 +143,7 @@ Don't change `BETTER_AUTH_SECRET` on a deployment that already has users. Better
 ### Checks
 
 ```bash
-pnpm test        # Vitest + convex-test, about 187 tests, no backend needed
+pnpm test        # Vitest + convex-test, 187 tests, no backend needed
 pnpm typecheck   # app, Convex functions and config
 pnpm build       # static bundle in dist/
 ```
@@ -173,7 +173,7 @@ The server URL is `https://<deployment>.convex.site/mcp` (it is also shown, with
   ```bash
   claude mcp add --transport http mini-crm https://<deployment>.convex.site/mcp
   ```
-  Then run `/mcp` inside Claude Code to authenticate. This also works against a local deployment (`http://127.0.0.1:3211/mcp`).
+  Then run `/mcp` inside Claude Code to authenticate. It should also work against a local deployment (`http://127.0.0.1:3211/mcp`); not tried.
 - **claude.ai:** Settings, Connectors, Add custom connector, paste the URL. Claude connects from its own servers, so you need a deployed URL.
 - **ChatGPT:** turn on developer mode, add a connector, paste the URL. Same requirement: a deployed URL.
 - **Grok:** not verified.
@@ -259,7 +259,7 @@ Left out on purpose, and good next steps:
 
 **Tested:**
 
-- Automated tests: `pnpm test` (about 187 tests), `pnpm typecheck` and `pnpm build`, which are the commands the `mini-crm` CI job runs.
+- Automated tests: `pnpm test` (187 tests), `pnpm typecheck` and `pnpm build`, which are the commands the `mini-crm` CI job runs.
 - `pnpm smoke:oauth` passes end to end against a local anonymous Convex backend (steps listed above).
 - Browser flows, checked headless with Playwright against a local backend: sign-up, OAuth consent with Allow and Deny, sign-in continuing the OAuth flow, demo data, dragging a card between columns, **Move to…**, editing and sending a Claude draft, replying, the composer with the window closed, **Revoke**, and resetting the demo.
 
