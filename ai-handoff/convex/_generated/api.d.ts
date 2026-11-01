@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
+import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
 import type * as handoff from "../handoff.js";
 import type * as http from "../http.js";
@@ -23,6 +24,7 @@ import type * as lib_prompt from "../lib/prompt.js";
 import type * as lib_send from "../lib/send.js";
 import type * as lib_signature from "../lib/signature.js";
 import type * as numbers from "../numbers.js";
+import type * as requests from "../requests.js";
 import type * as responder from "../responder.js";
 import type * as sending from "../sending.js";
 import type * as webhook from "../webhook.js";
@@ -37,6 +39,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authz: typeof authz;
+  conversations: typeof conversations;
   crons: typeof crons;
   handoff: typeof handoff;
   http: typeof http;
@@ -50,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   "lib/send": typeof lib_send;
   "lib/signature": typeof lib_signature;
   numbers: typeof numbers;
+  requests: typeof requests;
   responder: typeof responder;
   sending: typeof sending;
   webhook: typeof webhook;
