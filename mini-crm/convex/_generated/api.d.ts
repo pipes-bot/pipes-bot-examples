@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
+import type * as connectedApps from "../connectedApps.js";
 import type * as contacts from "../contacts.js";
 import type * as crm from "../crm.js";
 import type * as crmRead from "../crmRead.js";
@@ -41,6 +42,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authz: typeof authz;
+  connectedApps: typeof connectedApps;
   contacts: typeof contacts;
   crm: typeof crm;
   crmRead: typeof crmRead;

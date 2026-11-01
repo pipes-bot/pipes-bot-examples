@@ -60,8 +60,15 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
         return;
       }
       const data = result.data as { redirect?: boolean; url?: string } | null;
-      if (oauth && data?.redirect && data.url) {
-        window.location.href = data.url;
+      if (oauth) {
+        if (data?.redirect && data.url) {
+          window.location.href = data.url;
+        } else {
+          // Signed in, but the provider did not say where to go: continue to consent ourselves.
+          setPending(false);
+          window.location.replace(`/consent${window.location.search}`);
+        }
+        return;
       }
       // Otherwise stay pending until the effect above navigates.
     } catch (e) {

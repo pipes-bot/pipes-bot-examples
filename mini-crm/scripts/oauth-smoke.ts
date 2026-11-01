@@ -4,7 +4,8 @@
  *   pnpm exec convex dev            # SITE_URL and BETTER_AUTH_SECRET set with `npx convex env set`
  *   pnpm smoke:oauth
  *
- * Env: CONVEX_SITE_URL (default http://127.0.0.1:3211), SITE_URL (default http://localhost:5173).
+ * Env: CONVEX_SITE_URL (default http://127.0.0.1:3211), CONVEX_URL (default http://127.0.0.1:3210),
+ * SITE_URL (default http://localhost:5173).
  * Needs nothing beyond Node 22 (fetch, crypto). The browser half of the flow (the SPA's sign-in
  * and consent pages) is simulated with SPA-origin requests that carry the `Better-Auth-Cookie`
  * header, which is what crossDomainClient() sends.
@@ -24,13 +25,16 @@
  *   8. POST /mcp initialize and tools/list with the token → 200; a tampered token → 401
  *   9. Refresh twice with rotation → 200 each (the new access token works on /mcp);
  *      reusing the first refresh token → 4xx
- *  10. (revoke step added in Task 12)
+ *  10. Revoke in Settings: connectedApps.list (Convex HTTP API, with the session's Convex JWT from
+ *      /api/auth/convex/token) shows the client, connectedApps.revoke removes it, and the newest
+ *      access token, which has not expired, now gets 401 on /mcp
  */
 import { createHash, randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 
 const SITE = (process.env.CONVEX_SITE_URL ?? "http://127.0.0.1:3211").replace(/\/$/, "");
+const CONVEX = (process.env.CONVEX_URL ?? "http://127.0.0.1:3210").replace(/\/$/, "");
 const SPA = (process.env.SITE_URL ?? "http://localhost:5173").replace(/\/$/, "");
 const REDIRECT_URI = "http://127.0.0.1:9/callback";
 const RESOURCE = `${SITE}/mcp`;
@@ -286,6 +290,7 @@ async function main() {
   // 9. Refresh with rotation; the old refresh token stops working.
   const first = tokens.refresh_token!;
   let current = first;
+  let latestAccessToken = tokens.access_token!;
   for (const round of [1, 2]) {
     const step = `refresh ${round}`;
     const refresh = await tokenRequest({
@@ -301,6 +306,7 @@ async function main() {
     }
     await mcpWorks(step, refreshed.access_token!);
     current = refreshed.refresh_token!;
+    latestAccessToken = refreshed.access_token!;
     ok(step);
   }
   const reuse = await tokenRequest({
@@ -314,7 +320,47 @@ async function main() {
   }
   ok("refresh reuse rejected");
 
-  // 10. revoke step added in Task 12
+  // 10. Revoke from Settings; the access token is still unexpired but /mcp must refuse it.
+  const convexToken = await fetch(`${SITE}/api/auth/convex/token`, { headers: spaHeaders(cookie) });
+  await expectStatus("revoke", convexToken, 200);
+  const { token: sessionJwt } = await json<{ token?: string }>("revoke", convexToken);
+  if (!isJwt(sessionJwt)) await fail("revoke", null, "no Convex JWT from /api/auth/convex/token");
+  const before = await convexCall<{ clientId: string }[]>("query", "connectedApps:list", {}, sessionJwt!);
+  if (!before.some((app) => app.clientId === clientId)) {
+    await fail("revoke", null, `connectedApps.list does not show the client: ${JSON.stringify(before)}`);
+  }
+  await mcpWorks("revoke", latestAccessToken);
+  await convexCall("mutation", "connectedApps:revoke", { clientId: clientId! }, sessionJwt!);
+  const after = await convexCall<{ clientId: string }[]>("query", "connectedApps:list", {}, sessionJwt!);
+  if (after.some((app) => app.clientId === clientId)) {
+    await fail("revoke", null, `client still listed after revoke: ${JSON.stringify(after)}`);
+  }
+  const revoked = await fetch(`${SITE}/mcp`, {
+    method: "POST",
+    headers: mcpHeaders(latestAccessToken),
+    body: rpc(1, "tools/list", {}),
+  });
+  await expectStatus("revoke", revoked, 401);
+  ok("revoke");
+}
+
+/** Calls a public Convex function through the HTTP API as the signed-in user. */
+async function convexCall<T = unknown>(
+  kind: "query" | "mutation",
+  path: string,
+  args: Record<string, unknown>,
+  jwt: string,
+): Promise<T> {
+  const response = await fetch(`${CONVEX}/api/${kind}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${jwt}` },
+    body: JSON.stringify({ path, args, format: "json" }),
+  });
+  const body = await json<{ status?: string; value?: T; errorMessage?: string }>(path, response);
+  if (!response.ok || body.status !== "success") {
+    return await fail(path, null, `HTTP ${response.status}: ${JSON.stringify(body)}`);
+  }
+  return body.value as T;
 }
 
 main().catch((error) => {

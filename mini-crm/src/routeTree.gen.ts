@@ -16,6 +16,8 @@ import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppInboxIndexRouteImport } from './routes/_app/inbox/index'
+import { Route as AppInboxContactIdRouteImport } from './routes/_app/inbox/$contactId'
 import { Route as AppNumbersIndexRouteImport } from './routes/_app/numbers/index'
 import { Route as AppNumbersConnectedRouteImport } from './routes/_app/numbers/connected'
 
@@ -53,6 +55,16 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInboxIndexRoute = AppInboxIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppInboxRoute,
+} as any)
+const AppInboxContactIdRoute = AppInboxContactIdRouteImport.update({
+  id: '/$contactId',
+  path: '/$contactId',
+  getParentRoute: () => AppInboxRoute,
+} as any)
 const AppNumbersIndexRoute = AppNumbersIndexRouteImport.update({
   id: '/numbers/',
   path: '/numbers/',
@@ -69,19 +81,22 @@ export interface FileRoutesByFullPath {
   '/consent': typeof ConsentRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
-  '/inbox': typeof AppInboxRoute
+  '/inbox': typeof AppInboxRouteWithChildren
   '/settings': typeof AppSettingsRoute
+  '/inbox/$contactId': typeof AppInboxContactIdRoute
   '/numbers/connected': typeof AppNumbersConnectedRoute
+  '/inbox/': typeof AppInboxIndexRoute
   '/numbers/': typeof AppNumbersIndexRoute
 }
 export interface FileRoutesByTo {
   '/consent': typeof ConsentRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
-  '/inbox': typeof AppInboxRoute
   '/settings': typeof AppSettingsRoute
   '/': typeof AppIndexRoute
+  '/inbox/$contactId': typeof AppInboxContactIdRoute
   '/numbers/connected': typeof AppNumbersConnectedRoute
+  '/inbox': typeof AppInboxIndexRoute
   '/numbers': typeof AppNumbersIndexRoute
 }
 export interface FileRoutesById {
@@ -90,10 +105,12 @@ export interface FileRoutesById {
   '/consent': typeof ConsentRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
-  '/_app/inbox': typeof AppInboxRoute
+  '/_app/inbox': typeof AppInboxRouteWithChildren
   '/_app/settings': typeof AppSettingsRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/inbox/$contactId': typeof AppInboxContactIdRoute
   '/_app/numbers/connected': typeof AppNumbersConnectedRoute
+  '/_app/inbox/': typeof AppInboxIndexRoute
   '/_app/numbers/': typeof AppNumbersIndexRoute
 }
 export interface FileRouteTypes {
@@ -105,17 +122,20 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/inbox'
     | '/settings'
+    | '/inbox/$contactId'
     | '/numbers/connected'
+    | '/inbox/'
     | '/numbers/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/consent'
     | '/sign-in'
     | '/sign-up'
-    | '/inbox'
     | '/settings'
     | '/'
+    | '/inbox/$contactId'
     | '/numbers/connected'
+    | '/inbox'
     | '/numbers'
   id:
     | '__root__'
@@ -126,7 +146,9 @@ export interface FileRouteTypes {
     | '/_app/inbox'
     | '/_app/settings'
     | '/_app/'
+    | '/_app/inbox/$contactId'
     | '/_app/numbers/connected'
+    | '/_app/inbox/'
     | '/_app/numbers/'
   fileRoutesById: FileRoutesById
 }
@@ -188,6 +210,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/inbox/': {
+      id: '/_app/inbox/'
+      path: '/'
+      fullPath: '/inbox/'
+      preLoaderRoute: typeof AppInboxIndexRouteImport
+      parentRoute: typeof AppInboxRoute
+    }
+    '/_app/inbox/$contactId': {
+      id: '/_app/inbox/$contactId'
+      path: '/$contactId'
+      fullPath: '/inbox/$contactId'
+      preLoaderRoute: typeof AppInboxContactIdRouteImport
+      parentRoute: typeof AppInboxRoute
+    }
     '/_app/numbers/': {
       id: '/_app/numbers/'
       path: '/numbers'
@@ -205,8 +241,22 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppInboxRouteChildren {
+  AppInboxContactIdRoute: typeof AppInboxContactIdRoute
+  AppInboxIndexRoute: typeof AppInboxIndexRoute
+}
+
+const AppInboxRouteChildren: AppInboxRouteChildren = {
+  AppInboxContactIdRoute: AppInboxContactIdRoute,
+  AppInboxIndexRoute: AppInboxIndexRoute,
+}
+
+const AppInboxRouteWithChildren = AppInboxRoute._addFileChildren(
+  AppInboxRouteChildren,
+)
+
 interface AppRouteChildren {
-  AppInboxRoute: typeof AppInboxRoute
+  AppInboxRoute: typeof AppInboxRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
   AppNumbersConnectedRoute: typeof AppNumbersConnectedRoute
@@ -214,7 +264,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppInboxRoute: AppInboxRoute,
+  AppInboxRoute: AppInboxRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
   AppNumbersConnectedRoute: AppNumbersConnectedRoute,

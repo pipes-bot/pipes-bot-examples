@@ -17,11 +17,27 @@ const SCOPE_COPY: Record<string, string> = {
   offline_access: "Stay connected when you are away",
 };
 
+function hostOf(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    // A custom-scheme redirect (a desktop app) may have no host; show its scheme instead.
+    return parsed.host || `${parsed.protocol}//`;
+  } catch {
+    return null;
+  }
+}
+
 function Consent() {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const search = new URLSearchParams(window.location.search);
   const clientId = search.get("client_id");
-  const scopes = (search.get("scope") ?? "").split(" ").filter((scope) => scope in SCOPE_COPY);
+  const scopes = (search.get("scope") ?? "")
+    .split(" ")
+    .filter((scope) => Object.hasOwn(SCOPE_COPY, scope));
+  // Anyone can register a client with any name (DCR is unauthenticated), so also show where the
+  // browser goes next. The provider signed this query, so redirect_uri is the one it will use.
+  const redirectHost = hostOf(search.get("redirect_uri"));
 
   const [clientName, setClientName] = useState<string>();
   const [pending, setPending] = useState<"allow" | "deny">();
@@ -99,6 +115,11 @@ function Consent() {
                 <li key={scope}>{SCOPE_COPY[scope]}</li>
               ))}
             </ul>
+          )}
+          {redirectHost && (
+            <p className="text-sm text-muted-foreground">
+              Will redirect to <span className="font-medium text-foreground">{redirectHost}</span>
+            </p>
           )}
           {error && (
             <Alert variant="destructive">

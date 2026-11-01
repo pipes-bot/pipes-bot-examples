@@ -2,6 +2,7 @@ import { APIError } from "better-auth/api";
 import { verifyAccessToken } from "better-auth/oauth2";
 import { afterEach, expect, test, vi } from "vitest";
 import { makeT, seedConsent, seedUser, type TestConvex } from "../../tests/helpers";
+import { api } from "../_generated/api";
 import { authenticateMcpRequest } from "./auth";
 
 vi.mock("better-auth/oauth2", () => ({ verifyAccessToken: vi.fn() }));
@@ -90,6 +91,20 @@ test("no consent → 401", async () => {
   verify.mockResolvedValue({ sub: "user_1", azp: "client_1", scope: "crm:read" });
   // A consent for another client does not count.
   await seedConsent(t, { userId: "user_1", clientId: "client_2" });
+  expectUnauthorized(await authenticate(t, "Bearer jwt"));
+});
+
+test("revoked consent → 401", async () => {
+  const t = makeT();
+  await seedUser(t, "user_1");
+  await seedConsent(t, { userId: "user_1", clientId: "client_1", clientName: "Claude" });
+  // The JWT is still valid (verified offline); only the consent is gone.
+  verify.mockResolvedValue({ sub: "user_1", azp: "client_1", scope: "crm:read" });
+  expect(await authenticate(t, "Bearer jwt")).toHaveProperty("principal");
+
+  await t.withIdentity({ subject: "user_1" }).mutation(api.connectedApps.revoke, {
+    clientId: "client_1",
+  });
   expectUnauthorized(await authenticate(t, "Bearer jwt"));
 });
 

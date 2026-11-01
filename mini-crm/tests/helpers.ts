@@ -75,7 +75,13 @@ export async function signedRequest(
  */
 export async function seedConsent(
   t: TestConvex,
-  grant: { userId: string; clientId: string; clientName?: string; scopes?: string[] },
+  grant: {
+    userId: string;
+    clientId: string;
+    clientName?: string;
+    scopes?: string[];
+    createdAt?: number;
+  },
 ) {
   await t.run(async (ctx) => {
     await ctx.runMutation(components.betterAuth.adapter.create, {
@@ -95,6 +101,7 @@ export async function seedConsent(
           clientId: grant.clientId,
           userId: grant.userId,
           scopes: grant.scopes ?? ["crm:read", "crm:write"],
+          ...(grant.createdAt !== undefined ? { createdAt: grant.createdAt } : {}),
         },
       },
     });
