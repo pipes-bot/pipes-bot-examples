@@ -15,6 +15,7 @@ import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppRequestsRouteImport } from './routes/_app/requests'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppConversationsConversationIdRouteImport } from './routes/_app/conversations/$conversationId'
 import { Route as AppNumbersIndexRouteImport } from './routes/_app/numbers/index'
 import { Route as AppNumbersConnectedRouteImport } from './routes/_app/numbers/connected'
 
@@ -47,6 +48,12 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
+const AppConversationsConversationIdRoute =
+  AppConversationsConversationIdRouteImport.update({
+    id: '/conversations/$conversationId',
+    path: '/conversations/$conversationId',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppNumbersIndexRoute = AppNumbersIndexRouteImport.update({
   id: '/numbers/',
   path: '/numbers/',
@@ -64,6 +71,7 @@ export interface FileRoutesByFullPath {
   '/sign-up': typeof SignUpRoute
   '/requests': typeof AppRequestsRoute
   '/settings': typeof AppSettingsRoute
+  '/conversations/$conversationId': typeof AppConversationsConversationIdRoute
   '/numbers/connected': typeof AppNumbersConnectedRoute
   '/numbers/': typeof AppNumbersIndexRoute
 }
@@ -73,6 +81,7 @@ export interface FileRoutesByTo {
   '/requests': typeof AppRequestsRoute
   '/settings': typeof AppSettingsRoute
   '/': typeof AppIndexRoute
+  '/conversations/$conversationId': typeof AppConversationsConversationIdRoute
   '/numbers/connected': typeof AppNumbersConnectedRoute
   '/numbers': typeof AppNumbersIndexRoute
 }
@@ -84,6 +93,7 @@ export interface FileRoutesById {
   '/_app/requests': typeof AppRequestsRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/conversations/$conversationId': typeof AppConversationsConversationIdRoute
   '/_app/numbers/connected': typeof AppNumbersConnectedRoute
   '/_app/numbers/': typeof AppNumbersIndexRoute
 }
@@ -95,6 +105,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/requests'
     | '/settings'
+    | '/conversations/$conversationId'
     | '/numbers/connected'
     | '/numbers/'
   fileRoutesByTo: FileRoutesByTo
@@ -104,6 +115,7 @@ export interface FileRouteTypes {
     | '/requests'
     | '/settings'
     | '/'
+    | '/conversations/$conversationId'
     | '/numbers/connected'
     | '/numbers'
   id:
@@ -114,6 +126,7 @@ export interface FileRouteTypes {
     | '/_app/requests'
     | '/_app/settings'
     | '/_app/'
+    | '/_app/conversations/$conversationId'
     | '/_app/numbers/connected'
     | '/_app/numbers/'
   fileRoutesById: FileRoutesById
@@ -168,6 +181,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/conversations/$conversationId': {
+      id: '/_app/conversations/$conversationId'
+      path: '/conversations/$conversationId'
+      fullPath: '/conversations/$conversationId'
+      preLoaderRoute: typeof AppConversationsConversationIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/numbers/': {
       id: '/_app/numbers/'
       path: '/numbers'
@@ -189,6 +209,7 @@ interface AppRouteChildren {
   AppRequestsRoute: typeof AppRequestsRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppConversationsConversationIdRoute: typeof AppConversationsConversationIdRoute
   AppNumbersConnectedRoute: typeof AppNumbersConnectedRoute
   AppNumbersIndexRoute: typeof AppNumbersIndexRoute
 }
@@ -197,6 +218,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppRequestsRoute: AppRequestsRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
+  AppConversationsConversationIdRoute: AppConversationsConversationIdRoute,
   AppNumbersConnectedRoute: AppNumbersConnectedRoute,
   AppNumbersIndexRoute: AppNumbersIndexRoute,
 }

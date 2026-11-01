@@ -32,11 +32,12 @@ export function errorMessage(error: unknown): string {
   return error instanceof ConvexError ? String(error.data) : "Something went wrong";
 }
 
+/** Re-renders every `intervalMs` and returns the current time, fresh on every render. */
 export function useNow(intervalMs = 1000): number {
-  const [now, setNow] = useState(() => Date.now());
+  const [, setTick] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    const id = setInterval(() => setTick((n) => n + 1), intervalMs);
     return () => clearInterval(id);
   }, [intervalMs]);
-  return now;
+  return Date.now();
 }
