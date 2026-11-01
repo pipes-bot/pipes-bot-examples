@@ -3,6 +3,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { authComponent, createAuth } from "./auth";
 import { mcpEndpoint, mcpMethodNotAllowed, protectedResourceMetadata } from "./mcp/http";
+import { pipesWebhook } from "./webhook";
 
 const http = httpRouter();
 
@@ -27,6 +28,8 @@ http.route({
   method: "GET",
   handler: protectedResourceMetadata,
 });
+
+http.route({ path: "/webhooks/pipes", method: "POST", handler: pipesWebhook });
 
 http.route({ path: "/mcp", method: "POST", handler: mcpEndpoint });
 http.route({ path: "/mcp", method: "GET", handler: mcpMethodNotAllowed });
