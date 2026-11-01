@@ -9,6 +9,9 @@
  * and consent pages) is simulated with SPA-origin requests that carry the `Better-Auth-Cookie`
  * header, which is what crossDomainClient() sends.
  *
+ * Set SMOKE_PRINT_AUTHORIZE=1 to stop after registering a client and print only the authorize URL
+ * (open it in a browser to check the SPA pages by hand).
+ *
  * Steps (each prints `ok <step>`, or prints the response and exits 1):
  *   1. GET /.well-known/oauth-protected-resource/mcp and /.well-known/oauth-authorization-server → 200
  *   2. POST /mcp without a token → 401 with WWW-Authenticate
@@ -183,6 +186,27 @@ async function main() {
   if (!clientId) await fail("register", null, "no client_id");
   ok("register");
 
+  // Authorization request parameters (PKCE S256), built before sign-up so they can be printed.
+  const verifier = base64url(randomBytes(32));
+  const challengeS256 = base64url(createHash("sha256").update(verifier).digest());
+  const authorizeUrl = new URL(`${SITE}/api/auth/oauth2/authorize`);
+  authorizeUrl.search = new URLSearchParams({
+    response_type: "code",
+    client_id: clientId!,
+    redirect_uri: REDIRECT_URI,
+    scope: "openid offline_access crm:read crm:write",
+    state: "st",
+    code_challenge: challengeS256,
+    code_challenge_method: "S256",
+    resource: RESOURCE,
+  }).toString();
+  if (process.env.SMOKE_PRINT_AUTHORIZE) {
+    // For a manual browser check of the SPA's sign-in and consent pages: open this URL, sign in or
+    // sign up, click Allow, and the browser lands on REDIRECT_URI with `code=`.
+    console.log(authorizeUrl.toString());
+    return;
+  }
+
   // 4. Sign up from the SPA origin.
   const email = `smoke+${randomBytes(6).toString("hex")}@example.com`;
   const signUp = await fetch(`${SITE}/api/auth/sign-up/email`, {
@@ -198,19 +222,6 @@ async function main() {
   ok("sign up");
 
   // 5. Authorization request (the browser would follow this redirect to the SPA).
-  const verifier = base64url(randomBytes(32));
-  const challengeS256 = base64url(createHash("sha256").update(verifier).digest());
-  const authorizeUrl = new URL(`${SITE}/api/auth/oauth2/authorize`);
-  authorizeUrl.search = new URLSearchParams({
-    response_type: "code",
-    client_id: clientId!,
-    redirect_uri: REDIRECT_URI,
-    scope: "openid offline_access crm:read crm:write",
-    state: "st",
-    code_challenge: challengeS256,
-    code_challenge_method: "S256",
-    resource: RESOURCE,
-  }).toString();
   const authorize = await navigate(authorizeUrl);
   const location = authorize.location ?? "";
   if (
