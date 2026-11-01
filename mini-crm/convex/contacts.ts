@@ -32,7 +32,8 @@ export const detail = query({
 });
 
 export const conversation = query({
-  args: { contactId: v.id("contacts"), before: v.optional(v.number()) },
+  // `before` is the `nextBefore` of the previous page (a bare sentAt number is also accepted).
+  args: { contactId: v.id("contacts"), before: v.optional(v.union(v.string(), v.number())) },
   handler: async (ctx, { contactId, before }) => {
     const { workspace } = await requireContact(ctx, contactId);
     return read.conversation(ctx, workspace._id, contactId, { limit: CONVERSATION_PAGE, before });

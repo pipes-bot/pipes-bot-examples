@@ -7,6 +7,20 @@ import * as crmRead from "../crmRead";
 import { createDraft as createDraftRow } from "../drafts";
 import { stageValidator } from "../schema";
 
+const CLIENT_NAME_LENGTH = 60;
+// Authors the UI shows with their own meaning; a client must not be able to pose as them.
+const RESERVED_CLIENT_NAMES = new Set(["you", "system"]);
+
+/**
+ * The name a client is shown with as author and actor. Dynamic client registration is open, so the
+ * name is chosen by whoever registered the client: trimmed, capped, and never "you" or "system".
+ */
+export function clientDisplayName(raw: string | null | undefined): string {
+  const name = (raw ?? "").trim().slice(0, CLIENT_NAME_LENGTH).trim();
+  if (name === "" || RESERVED_CLIENT_NAMES.has(name.toLowerCase())) return "MCP";
+  return name;
+}
+
 /**
  * The consent `userId` gave to OAuth client `clientId`, plus the client's display name.
  * Null when there is no consent (never granted, or revoked in Settings): access tokens are
@@ -27,7 +41,7 @@ export const consentAndClient = internalQuery({
       model: "oauthClient",
       where: [{ field: "clientId", value: clientId }],
     });
-    return { scopes: consent.scopes as string[], clientName: client?.name || "MCP" };
+    return { scopes: consent.scopes as string[], clientName: clientDisplayName(client?.name) };
   },
 });
 
@@ -84,11 +98,13 @@ export const getConversation = internalQuery({
     workspaceId: v.id("workspaces"),
     contactId: v.string(),
     limit: v.number(),
-    before: v.optional(v.number()),
+    before: v.optional(v.union(v.string(), v.number())),
   },
   handler: async (ctx, { workspaceId, contactId, limit, before }) => {
     const id = ctx.db.normalizeId("contacts", contactId);
-    const page = id === null ? null : await crmRead.conversation(ctx, workspaceId, id, { limit, before });
+    if (id === null) return { error: NOT_FOUND } satisfies Failure;
+    // A malformed cursor comes back as a tool error.
+    const page = await failing(() => crmRead.conversation(ctx, workspaceId, id, { limit, before }));
     return page ?? ({ error: NOT_FOUND } satisfies Failure);
   },
 });

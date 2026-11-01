@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import {
@@ -189,49 +190,93 @@ export async function contactDetail(
   return { contact: summary, notes, activities };
 }
 
+/** `"<sentAt>:<messageId>"`, as returned in `nextBefore`. A bare `sentAt` (number) is still accepted. */
+export type ConversationCursor = string | number;
+
+const CURSOR = /^(\d+)(?::(.+))?$/;
+
+function parseCursor(before: ConversationCursor): { sentAt: number; messageId?: string } {
+  if (typeof before === "number") return { sentAt: before };
+  const match = CURSOR.exec(before.trim());
+  if (!match) throw new ConvexError("Invalid cursor: pass the nextBefore of the previous page.");
+  return { sentAt: Number(match[1]), ...(match[2] !== undefined ? { messageId: match[2] } : {}) };
+}
+
+/**
+ * Messages before the cursor, newest first. WhatsApp timestamps are whole seconds, so several
+ * messages can share a `sentAt`; the cursor names the oldest message already returned, and the rest
+ * of its `sentAt` comes next in index order (`_creationTime` breaks the tie).
+ */
+async function messagesBefore(
+  ctx: QueryCtx,
+  contactId: Id<"contacts">,
+  before: ConversationCursor | undefined,
+  take: number,
+): Promise<Doc<"messages">[]> {
+  if (before === undefined) {
+    return ctx.db
+      .query("messages")
+      .withIndex("by_contact_sent_at", (q) => q.eq("contactId", contactId))
+      .order("desc")
+      .take(take);
+  }
+  const { sentAt, messageId } = parseCursor(before);
+  const id = messageId === undefined ? null : ctx.db.normalizeId("messages", messageId);
+  const last = id === null ? null : await ctx.db.get(id);
+  const ties =
+    last !== null && last.contactId === contactId && last.sentAt === sentAt
+      ? await ctx.db
+          .query("messages")
+          .withIndex("by_contact_sent_at", (q) =>
+            q.eq("contactId", contactId).eq("sentAt", sentAt).lt("_creationTime", last._creationTime),
+          )
+          .order("desc")
+          .take(take)
+      : [];
+  const older = await ctx.db
+    .query("messages")
+    .withIndex("by_contact_sent_at", (q) => q.eq("contactId", contactId).lt("sentAt", sentAt))
+    .order("desc")
+    .take(take);
+  return [...ties, ...older].slice(0, take);
+}
+
 export async function conversation(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   contactId: Id<"contacts">,
-  opts: { limit: number; before?: number },
-): Promise<{ messages: (Doc<"messages"> & { from: string })[]; nextBefore?: number } | null> {
+  opts: { limit: number; before?: ConversationCursor },
+): Promise<{ messages: (Doc<"messages"> & { from: string })[]; nextBefore?: string } | null> {
   const contact = await ctx.db.get(contactId);
   if (!contact || contact.workspaceId !== workspaceId) return null;
-  const { before } = opts;
   // One extra row tells whether older messages exist.
-  const newestFirst = await ctx.db
-    .query("messages")
-    .withIndex("by_contact_sent_at", (q) =>
-      before === undefined ? q.eq("contactId", contactId) : q.eq("contactId", contactId).lt("sentAt", before),
-    )
-    .order("desc")
-    .take(opts.limit + 1);
+  const newestFirst = await messagesBefore(ctx, contactId, opts.before, opts.limit + 1);
   const hasMore = newestFirst.length > opts.limit;
   const page = newestFirst.slice(0, opts.limit).reverse();
+  const oldest = page[0];
   return {
     messages: page.map((message) => ({ ...message, from: fromLabel(message) })),
-    nextBefore: hasMore ? page[0]?.sentAt : undefined,
+    nextBefore: hasMore && oldest ? `${oldest.sentAt}:${oldest._id}` : undefined,
   };
 }
 
-/** Contacts whose last message is theirs, longest wait first (scans the oldest 1000 contacts). */
+/**
+ * Contacts whose last message is theirs. Those that can still get a reply (window open) come first,
+ * longest wait first; then the closed-window ones, most recent first. Reads the 1000 most recent
+ * contacts, so stale conversations never crowd out today's.
+ */
 export async function unanswered(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   limit: number,
   now: number,
 ): Promise<ContactSummary[]> {
-  const waiting: Doc<"contacts">[] = [];
-  let scanned = 0;
-  const oldestFirst = ctx.db
-    .query("contacts")
-    .withIndex("by_workspace_last_message", (q) => q.eq("workspaceId", workspaceId))
-    .order("asc");
-  for await (const contact of oldestFirst) {
-    if (contact.lastDirection === "in") waiting.push(contact);
-    if (waiting.length >= limit || ++scanned >= UNANSWERED_SCAN) break;
-  }
-  return summarizeAll(ctx, waiting, now);
+  const recent = await latestContacts(ctx, workspaceId, UNANSWERED_SCAN);
+  const waiting = recent.filter((contact) => contact.lastDirection === "in");
+  const open = waiting.filter((contact) => windowState(contact, now).open);
+  const closed = waiting.filter((contact) => !windowState(contact, now).open);
+  // `recent` is newest first: reversed, the open ones are longest wait first.
+  return summarizeAll(ctx, [...open.reverse(), ...closed].slice(0, limit), now);
 }
 
 export async function pipelineSummary(

@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { makeT, seedConsent, seedUser, type TestConvex } from "../../tests/helpers";
 import { api } from "../_generated/api";
 import { authenticateMcpRequest } from "./auth";
+import { clientDisplayName } from "./data";
 
 vi.mock("better-auth/oauth2", () => ({ verifyAccessToken: vi.fn() }));
 
@@ -144,4 +145,22 @@ test("client without a name is labelled MCP, and a first-time user gets a worksp
   expect(workspaces).toHaveLength(1);
   expect(workspaces[0]).toMatchObject({ ownerId: "user_2", mcpSendMode: "draft" });
   expect(principal?.workspaceId).toBe(workspaces[0]._id);
+});
+
+test("client names are trimmed, capped and can't pose as you or system", () => {
+  expect(clientDisplayName("  Claude  ")).toBe("Claude");
+  expect(clientDisplayName("x".repeat(80))).toBe("x".repeat(60));
+  for (const reserved of ["you", "You", " SYSTEM ", "", "   ", undefined, null]) {
+    expect(clientDisplayName(reserved)).toBe("MCP");
+  }
+});
+
+test("a client registered as \"you\" acts as MCP", async () => {
+  const t = makeT();
+  await seedUser(t, "user_1");
+  await seedConsent(t, { userId: "user_1", clientId: "client_1", clientName: " You " });
+  verify.mockResolvedValue({ sub: "user_1", azp: "client_1", scope: "crm:read" });
+
+  const { principal } = await authenticate(t, "Bearer jwt");
+  expect(principal?.clientName).toBe("MCP");
 });

@@ -165,7 +165,8 @@ describe("contacts queries", () => {
     expect(first!.messages[99].text).toBe("m105");
     expect(first!.messages[99].from).toBe("contact");
     expect(first!.messages[98].from).toBe("you");
-    expect(first!.nextBefore).toBe(6);
+    // "<sentAt>:<id>" of the oldest message on the page.
+    expect(first!.nextBefore).toBe(`6:${first!.messages[0]._id}`);
 
     const second = await asUser.query(api.contacts.conversation, {
       contactId,
@@ -190,10 +191,11 @@ describe("contacts queries", () => {
 });
 
 describe("crmRead helpers", () => {
-  it("unanswered lists the longest wait first", async () => {
+  it("unanswered lists the longest wait first among open windows", async () => {
     const { t, workspaceId, numberId } = await seed();
-    await insertContact(t, workspaceId, numberId, { name: "Recent", waId: "1", lastMessageAt: NOW });
-    await insertContact(t, workspaceId, numberId, { name: "Old", waId: "2", lastMessageAt: NOW - 5 * HOUR });
+    const wrote = (at: number) => ({ lastMessageAt: at, lastInboundAt: at });
+    await insertContact(t, workspaceId, numberId, { name: "Recent", waId: "1", ...wrote(NOW) });
+    await insertContact(t, workspaceId, numberId, { name: "Old", waId: "2", ...wrote(NOW - 5 * HOUR) });
     await insertContact(t, workspaceId, numberId, {
       name: "Answered",
       waId: "3",

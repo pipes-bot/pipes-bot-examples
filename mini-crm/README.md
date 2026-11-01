@@ -40,7 +40,7 @@ pipes.bot --POST /webhooks/pipes--> httpAction (verify signature) --> mutation i
 SPA (TanStack Router) <------ reactive queries <--------------------------+
    |                                                                      |
    |-- mutations (stage, tags, notes, drafts)                             |
-   '-- action sendMessage --> POST /v1/messages/app/send                   |
+   '-- action send ---------> POST /v1/messages/app/send                   |
                                    ^                                      |
 MCP client --POST /mcp (Bearer JWT)--> httpAction --> McpServer ----------+
    |                                      (tools call the same internal
@@ -73,16 +73,16 @@ The raw event is stored (deduplicated by webhook id) and projected into numbers,
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
-| `search_contacts` | `crm:read` | Search by text, stage or tag (limit 20, max 50) |
+| `search_contacts` | `crm:read` | Search by name or phone (or BSUID), stage or tag; message text is not searched (limit 20, max 50) |
 | `get_contact` | `crm:read` | A contact with up to 20 notes and 20 recent activities |
-| `get_conversation` | `crm:read` | Messages, oldest first, with an explicit `from` (limit 30, max 100, paged with `before`) |
-| `list_unanswered` | `crm:read` | Contacts waiting for a reply, with the time left in their window (limit 20, max 50) |
+| `get_conversation` | `crm:read` | Messages, oldest first, with an explicit `from` (limit 30, max 100, paged with the `nextBefore` cursor) |
+| `list_unanswered` | `crm:read` | Contacts waiting for a reply: open window first, longest wait first, then closed-window ones (limit 20, max 50) |
 | `pipeline_summary` | `crm:read` | Count per stage and the last 10 stage changes |
 | `update_contact` | `crm:write` | Stage, name, add or remove tags |
 | `add_note` | `crm:write` | An internal note (1-2000 chars), never sent to the contact |
 | `send_message` | `crm:write` | A text reply: a draft in draft mode, an immediate send in direct mode |
 
-Tools a token has no scope for are not listed. Input is validated with zod, and business errors (`window_closed`, `number_blocked`, a contact that does not exist or belongs to another workspace) come back as a tool result with `isError: true`, not as a protocol error. Every contact id appears in the text of the result, because many clients only show the model `content`. Every change made through MCP is recorded as an activity with the client's name.
+Tools a token has no scope for are not listed. Input is validated with zod, and business errors (`window_closed`, `number_blocked`, a contact that does not exist or belongs to another workspace) come back as a tool result with `isError: true`, not as a protocol error. Many clients only show the model `content`, so the text of each result is a one-line summary (with every contact id) followed by the same data as `structuredContent`, as a JSON block marked as data written by contacts, never instructions. Every change made through MCP is recorded as an activity with the client's name (trimmed to 60 characters; a client named `you` or `system`, or with no name, is shown as `MCP`).
 
 ## Set up the pipes.bot App
 
@@ -226,7 +226,7 @@ Also:
 ## Sending rules
 
 - **24-hour window.** A free-form text can be sent only within 24 hours of the contact's last message. The window is open when `lastInboundAt` is set and less than 24 hours old; echoes from the phone don't count. The app refuses earlier and doesn't call the API, and if the API still answers `SERVICE_WINDOW_EXPIRED` (Meta error 131047) the message ends as `failed` with `window_closed`. A draft whose window closed can only be discarded.
-- **Blocked numbers.** A number whose health check says `unhealthy` (which includes `LIMITED` and `BLOCKED`) refuses sends without writing anything.
+- **Blocked numbers.** A number whose health check reports `BLOCKED` refuses sends and drafts without writing anything. A `LIMITED` number still sends; the Numbers page shows it as unhealthy.
 - **Rate limit.** The limit is 60 requests per minute per API key, shared by every number in the App. On `429` the message is not sent, so it is safe to retry: it waits for `X-RateLimit-Reset` and retries, up to 3 attempts in total, then ends as `failed` with `rate_limited`.
 - **Timeouts and network errors are never retried.** A timeout (30 s) or a network error leaves it unknown whether the message went out, and retrying could send it twice. The message ends as `failed` and the inbox shows **Retry**, which creates a new send when you choose.
 - **Text only**, 1-4096 characters.
