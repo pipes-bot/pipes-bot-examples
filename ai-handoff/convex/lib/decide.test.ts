@@ -14,13 +14,16 @@ const textResult = (text: string) => ({
   warnings: [],
 });
 
-const toolResult = (calls: { name: string; args: unknown }[]) => ({
-  content: calls.map((c, i) => ({
+const toolResult = (calls: { name: string; args: unknown }[], text?: string) => ({
+  content: [
+    ...(text ? [{ type: "text" as const, text }] : []),
+    ...calls.map((c, i) => ({
     type: "tool-call" as const,
     toolCallId: `call_${i}`,
     toolName: c.name,
     input: JSON.stringify(c.args),
-  })),
+    })),
+  ],
   finishReason: { unified: "tool-calls" as const, raw: undefined },
   usage,
   warnings: [],
@@ -33,6 +36,13 @@ function sequence(...results: ReturnType<typeof textResult | typeof toolResult>[
     doGenerate: async () => results[Math.min(i++, results.length - 1)],
   });
 }
+
+const emptyResult = () => ({
+  content: [],
+  finishReason: { unified: "stop" as const, raw: undefined },
+  usage,
+  warnings: [],
+});
 
 describe("modelDecision", () => {
   it("plain text reply", async () => {
@@ -95,6 +105,62 @@ describe("modelDecision", () => {
     expect(d.requests[0].customerName).toBeUndefined();
     expect(d.requests[1].customerName).toHaveLength(80);
     expect(d.text).toBe("Ok.");
+  });
+
+  it("keeps the notice written next to a tool call when the last step is empty", async () => {
+    const model = sequence(
+      toolResult(
+        [{ name: "request_human", args: { reason: "complaint", summary: "Angry customer" } }],
+        "Let me get someone from the team.",
+      ),
+      emptyResult(),
+    );
+    const d = await modelDecision(model, "sys", "prompt");
+    expect(d.text).toBe("Let me get someone from the team.");
+    expect(d.handoff).toEqual({ reason: "complaint", summary: "Angry customer" });
+  });
+
+  it("a null customerName keeps the request", async () => {
+    const model = sequence(
+      toolResult([{ name: "save_request", args: { summary: "s", details: "d", customerName: null } }]),
+      textResult("Saved."),
+    );
+    const d = await modelDecision(model, "sys", "prompt");
+    expect(d.requests).toEqual([{ summary: "s", details: "d" }]);
+    expect(d.requests[0].customerName).toBeUndefined();
+    expect(d.toolCalls).toHaveLength(1);
+  });
+
+  it("toolCalls excludes invalid calls", async () => {
+    const model = sequence(
+      toolResult([
+        { name: "no_such_tool", args: {} },
+        { name: "save_request", args: { summary: 123 } },
+        { name: "save_request", args: { summary: "s", details: "d" } },
+      ]),
+      textResult("Saved."),
+    );
+    const d = await modelDecision(model, "sys", "prompt");
+    expect(d.requests).toEqual([{ summary: "s", details: "d" }]);
+    expect(d.toolCalls).toEqual([{ name: "save_request", args: { summary: "s", details: "d" } }]);
+  });
+
+  it("the 4th save_request gets a limit message back", async () => {
+    const save = (n: number) => ({ name: "save_request", args: { summary: `s${n}`, details: `d${n}` } });
+    const prompts: unknown[] = [];
+    const results = [toolResult([save(1), save(2), save(3), save(4)]), textResult("Done.")];
+    let i = 0;
+    const model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        prompts.push(options.prompt);
+        return results[i++];
+      },
+    });
+    const d = await modelDecision(model, "sys", "prompt");
+    expect(d.requests).toHaveLength(3);
+    const second = JSON.stringify(prompts[1]);
+    expect(second.match(/Recorded\./g)).toHaveLength(3);
+    expect(second.match(/Limit reached, not saved\./g)).toHaveLength(1);
   });
 
   it("model error propagates", async () => {

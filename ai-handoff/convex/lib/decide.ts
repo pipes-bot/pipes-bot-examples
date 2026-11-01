@@ -1,5 +1,6 @@
 import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import { z } from "zod";
+import { MAX_MODEL_STEPS, MODEL_TIMEOUT_MS } from "./handoff";
 import { clampText } from "./prompt";
 
 export type ReplyDecision = {
@@ -11,8 +12,6 @@ export type ReplyDecision = {
 };
 
 const MAX_REQUESTS = 3;
-const MODEL_TIMEOUT_MS = 60_000;
-const MAX_MODEL_STEPS = 3;
 
 export async function modelDecision(
   model: LanguageModel,
@@ -43,7 +42,7 @@ export async function modelDecision(
       inputSchema: z.object({
         summary: z.string().describe("One-line summary (up to 500 characters)"),
         details: z.string().describe("Everything the team needs (up to 2000 characters)"),
-        customerName: z.string().optional().describe("Customer name if known (up to 80 characters)"),
+        customerName: z.string().nullish().describe("Customer name if known (up to 80 characters)"),
       }),
       execute: async ({ summary, details, customerName }) => {
         if (requests.length >= MAX_REQUESTS) return "Limit reached, not saved.";
@@ -68,12 +67,17 @@ export async function modelDecision(
     timeout: MODEL_TIMEOUT_MS,
   });
 
+  // result.text is the final step only; keep the last non-empty step text so a
+  // notice written next to a tool call is not lost.
+  const text =
+    [...result.steps].reverse().find((s) => s.text.trim())?.text.trim() ?? "";
+
   return {
-    text: result.text.trim(),
+    text,
     ...(handoff ? { handoff } : {}),
     requests,
     toolCalls: result.steps.flatMap((s) =>
-      s.toolCalls.map((c) => ({ name: c.toolName as string, args: c.input as unknown })),
+      s.toolCalls.filter((c) => !c.invalid).map((c) => ({ name: c.toolName as string, args: c.input as unknown })),
     ),
     usage: {
       inputTokens: result.totalUsage.inputTokens ?? 0,

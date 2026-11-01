@@ -1,6 +1,4 @@
-import type { Source } from "./handoff";
-
-export const REPLY_MAX_CHARS = 600;
+import { REPLY_MAX_CHARS, type Source } from "./handoff";
 
 export function clampText(value: unknown, max: number): string {
   return String(value ?? "").trim().slice(0, max);
@@ -38,7 +36,10 @@ export function conversationBlock(
   messages: { source: Source; type: string; text?: string }[],
 ): string {
   const lines = messages.map((m) => {
-    const text = (m.text ?? "").replace(/<\/conversation/gi, "<\\/conversation");
+    // Continuation lines are indented so a message cannot forge a role line.
+    const text = (m.text ?? "")
+      .replace(/<\/conversation/gi, "<\\/conversation")
+      .replace(/\r?\n/g, "\n  ");
     const body = m.type === "text" ? text : text ? `[${m.type}] ${text}` : `[${m.type}]`;
     return `${LABELS[m.source]}: ${body}`;
   });
