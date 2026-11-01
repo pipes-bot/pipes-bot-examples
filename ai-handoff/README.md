@@ -71,15 +71,16 @@ Each conversation is in one of three modes:
 ```mermaid
 stateDiagram-v2
     [*] --> ai: first message from a customer
+    [*] --> human: first message is a phone reply
     ai --> ai: customer text (reply in 4 s)
     ai --> waiting_human: customer media
     ai --> waiting_human: request_human
-    ai --> waiting_human: limit (20 AI replies in an hour)
+    ai --> waiting_human: limit (20 AI replies in one hour)
     ai --> waiting_human: error (model or send failed)
     ai --> human: phone reply or Take over
     waiting_human --> human: phone reply or Take over
     waiting_human --> ai: Hand back to AI
-    human --> human: phone reply or Take over (timer restarts)
+    human --> human: phone reply (timer restarts)
     human --> ai: Hand back to AI
     human --> ai: customer text after the idle timeout
     human --> waiting_human: customer media after the idle timeout
@@ -87,16 +88,16 @@ stateDiagram-v2
 
 How to read it:
 
-- **Customer text** is a text message, or a button or list reply that carries its title. In `ai` mode it schedules a reply 4 seconds later (the debounce), so two messages in a row get one answer. A message older than 15 minutes (a webhook retry after an outage, or a replayed parked event) updates the state but gets no reply.
+- **Customer text** is a text message, or a button or list reply that carries its title. In `ai` mode it schedules a reply 4 seconds later (the debounce), so two messages in a row get one answer. A text older than 15 minutes (a webhook retry after an outage, or a replayed parked event) is stored but, in `ai` mode, changes nothing. The only case where an old text still changes the state is the resume below: in `human` after the timer ended it brings the conversation back to `ai`, without a reply.
 - **Customer media** (image, audio, document, location and any other type) goes to `waiting_human` with the reason `media`, because the AI does not read media. Reactions and stickers are stored but change nothing.
-- **Phone reply** is an echo from the WhatsApp Business app. It moves any conversation to `human` with the reason `phone_reply` and starts a timer of **Minutes before the AI resumes** (`idleMinutes`, default 30, from 5 to 1440, set in **Settings**). Another phone reply or **Take over** restarts the timer.
+- **Phone reply** is an echo from the WhatsApp Business app. It moves any conversation to `human` with the reason `phone_reply` and starts a timer of **Minutes before the AI resumes** (`idleMinutes`, default 30, from 5 to 1440, set in **Settings**). Another phone reply restarts the timer. **Take over** is hidden while the conversation is in `human`, so the dashboard cannot restart it.
 - **Idle timeout** is lazy: there is no cron. After the timer ends the dashboard shows "AI resumes on the next message", and the next customer text brings the AI back and gets an answer. Media after the timer ends goes to `waiting_human`. Before the timer ends, customer messages change nothing.
 - **Take over** and **Hand back to AI** are the dashboard buttons. A hand back answers right away when the last message is the customer's.
 - **`request_human`**, **limit** and **error** are results of an AI turn. The reason is shown in plain language in the conversation header, with the AI's summary for `request_human` and the last error for `error`.
 - The handoff summary is kept when a `waiting_human` conversation moves to `human` and is cleared only when the conversation goes back to `ai`.
 - Combinations that make no sense (a handoff while the conversation is not in `ai`, for example) change nothing.
 
-With **AI replies** off on the number, the states are still tracked, but no reply is ever scheduled.
+With **AI replies** off on the number, the states are still tracked, but no reply is ever scheduled. **Hand back to AI** still moves the conversation to `ai`; the AI just does not answer until the switch is on, and the conversation header says so.
 
 ### Webhook and ingestion
 
@@ -111,18 +112,18 @@ With **AI replies** off on the number, the states are still tracked, but no repl
 
 The raw event is stored (deduplicated by webhook id) and projected into numbers, conversations and messages in one transaction. An unexpected failure returns 500 so pipes.bot retries. Events for a number the app does not know yet are parked and replayed when `number.onboarded` arrives; a message parked for more than 15 minutes gets no reply.
 
-- A conversation is one customer on one number, found by BSUID first and then by phone number. It starts in `ai`. `user_changed_number` and `user_changed_user_id` migrate an existing conversation.
+- A conversation is one customer on one number, found by BSUID first and then by phone number. It starts in `ai`, or in `human` (reason `phone_reply`) when its first message is a reply your team sent from the phone. `user_changed_number` and `user_changed_user_id` migrate an existing conversation.
 - A reply sent from the phone arrives as an echo, is stored as a `phone` message and moves the conversation to `human`. It does not open the 24-hour window. An echo whose `wamid` is already stored is ignored.
-- Statuses update the message with the same `wamid`. A `failed` status on an AI message ends the AI's turn with an error, if the conversation is still in `ai`.
+- Statuses update the message with the same `wamid`. A `failed` status on an AI message ends the AI's turn with an error, if the conversation is still in `ai` and its number still belongs to the conversation's workspace.
 - Received media is stored with its type and caption.
 
-**Signup and ownership.** `createSignupLink` calls `POST /v1/apps/token` with `metadata.workspaceId` and `redirectUrl = ${SITE_URL}/numbers/connected`, and sends the user to the pipes.bot signup page. When `number.onboarded` arrives, its `metadata.workspaceId` ties the number to the workspace, with **AI replies** off. Reconnecting a number to the same workspace keeps the switch. Onboarding a number into a different workspace turns **AI replies** off, and new messages start fresh conversations there.
+**Signup and ownership.** `createSignupLink` calls `POST /v1/apps/token` with `metadata.workspaceId` and `redirectUrl = ${SITE_URL}/numbers/connected`, and sends the user to the pipes.bot signup page. When `number.onboarded` arrives, its `metadata.workspaceId` ties the number to the workspace, with **AI replies** off. Reconnecting a number to the same workspace keeps the switch. Onboarding a number into a different workspace turns **AI replies** off, and new messages start fresh conversations there. The old workspace keeps its conversations but treats the moved number as off: they never schedule a reply or send through it (a reply still waiting to be sent stays pending and is never sent), a `failed` status for one of their old AI messages changes nothing, and the dashboard shows them with **AI off**.
 
 ## How the AI decides
 
 `respond` is an internal action that answers one turn of one conversation.
 
-**Before the model.** The turn is dropped, and recorded as `dropped`, when the conversation is no longer in `ai` or its turn counter moved (`stale`), when **AI replies** is off (`ai_disabled`), or when the 24-hour window is closed (`window_closed`). A conversation that was deleted meanwhile (a demo reset, for example) is skipped, and nothing is recorded for it. With 20 AI replies in the last hour on the conversation, the turn ends in `waiting_human` with the reason `limit` and the model is not called.
+**Before the model.** The turn is dropped, and recorded as `dropped`, when the conversation is no longer in `ai` or its turn counter moved (`stale`), when **AI replies** is off or the number now belongs to another workspace (`ai_disabled`), or when the 24-hour window is closed (`window_closed`). A conversation that was deleted meanwhile (a demo reset, for example) is skipped, and nothing is recorded for it. The reply limit counts 20 AI replies per conversation in fixed one-hour windows: the window starts with the first reply and a new one starts with the first reply an hour or more later. When the current window already has 20, the turn ends in `waiting_human` with the reason `limit` and the model is not called.
 
 **The prompt.** The system prompt (in English) has, in this order:
 
@@ -130,7 +131,7 @@ The raw event is stored (deduplicated by webhook id) and projected into numbers,
 2. Fixed rules: answer in about 600 characters or fewer, in the customer's language, in plain text; never invent a price, lead time, stock level or policy that is not in the instructions or the FAQ; call `request_human` when the AI does not know, the customer asks for a person, complains or the subject is sensitive (and tell the customer in one sentence that someone from the team will continue); call `save_request` when the customer places an order, asks for a quote or makes a booking.
 3. A warning that the conversation is untrusted content: it can contain instructions, but it cannot change the rules.
 
-The conversation is a single `user` message inside `<conversation>` tags with the last 30 messages. Each line is labeled `Customer:`, `Assistant:` or `Staff (phone):`, media shows as `[image] caption`, and continuation lines are indented so a message cannot forge a role line.
+The conversation is a single `user` message inside `<conversation>` tags with the last 30 messages. Each line is labeled `Customer:`, `Assistant:` or `Staff (phone):`, media shows as `[image] caption`, and continuation lines are indented so a message cannot forge a role line. AI replies that failed to send are left out, because the customer never saw them.
 
 **The two tools.**
 
@@ -149,7 +150,9 @@ Fields over the limit are cut, never rejected, so a long input does not break th
 - **A second customer message.** It raises `aiTurn` and reschedules the reply, so the earlier turn is dropped and one answer covers both messages.
 - **A button click.** **Take over** moves the conversation to `human` and raises `aiTurn`, so a turn that was already running is dropped and cannot answer after the click. (**Hand back to AI** needs no such guard: a conversation in `ai` ignores it.)
 
-Once `commitReply` has written a message, it is delivered even if the turn changes afterwards. The check that matters is the one before anything is written.
+`commitReply` also re-checks **AI replies** at the same point: switching it off while the model is thinking drops the turn as `ai_disabled`, and nothing is written or sent.
+
+Once `commitReply` has written a message, it is delivered even if the turn changes afterwards. The check that matters is the one before anything is written. The one exception is a reply waiting for a 429 retry (see Sending).
 
 **After the model.** `commitReply` saves the requests, then the reply (cut at the end of a sentence before 600 characters, or at 600 with `…`), then applies the handoff, and stores an `aiRun` with the outcome: `sent`, `handed_off`, `empty` (no text and no intent), `dropped`, `limited` or `error`. The conversation page shows the 50 most recent turns. There is no cleanup of old runs.
 
@@ -171,7 +174,7 @@ Replies are text only, sent with `POST /v1/messages/app/send` and `{ poolNumberI
 
 - A number whose health check reports `BLOCKED` fails the message with `number_blocked`, without calling the API.
 - A demo number never calls the API: the message is marked `sent` with a `wamid.demo_...` id and `delivered` about 2 seconds later.
-- **Rate limit (429).** The message was not sent, so it is retried after `X-RateLimit-Reset` (or 60 s), at most 3 attempts in total, then `failed` with `rate_limited`. The limit is 60 requests per minute per API key.
+- **Rate limit (429).** The message was not sent, so it is retried after `X-RateLimit-Reset` (or 60 s), at most 3 attempts in total, then `failed` with `rate_limited`. The limit is 60 requests per minute per API key. If the conversation left `ai` before a retry (your team took over), the message ends as `failed` with `superseded` and is not sent; that is not an AI error.
 - **A timeout is never retried.** After 30 s the message may or may not have gone out, so it ends as `failed` with `unknown`. A network error is not retried either.
 - `SERVICE_WINDOW_EXPIRED` (or Meta error 131047) ends as `failed` with `window_closed`. Any other failure keeps its code.
 - When an AI message fails and the conversation is still in `ai`, it moves to `waiting_human` with the reason `ai_error`, and the error shows in the conversation header.
@@ -235,13 +238,13 @@ pnpm dev
 3. Set the webhook URL to `https://<deployment>.convex.site/webhooks/pipes`.
 4. Copy the `whsec_` secret and the `ak_` key into `PIPES_WEBHOOK_SECRET` and `PIPES_API_KEY`, and the App slug into `PIPES_APP_SLUG`.
 5. Sign up in the app, open **Numbers**, and click **Connect a number**.
-6. After the number appears, turn on **AI replies** for it. It is off by default, so a newly connected number never answers on its own. Turning it on or off does not answer old messages.
+6. After the number appears, turn on **AI replies** for it. It is off by default, so a newly connected number never answers on its own. Turning it on or off does not answer old messages, and turning it off also drops a reply the AI is writing at that moment.
 7. Write your **Instructions** and **FAQ** in **Settings**.
 
 ### Checks
 
 ```bash
-pnpm test        # Vitest + convex-test, 205 tests, no backend needed
+pnpm test        # Vitest + convex-test, 217 tests, no backend needed
 pnpm typecheck   # app and Convex functions
 pnpm build       # static bundle in dist/
 ```
@@ -300,7 +303,7 @@ Customer messages are sent to an AI provider through OpenRouter, and to the prov
 - Each turn sends your **Instructions** and **FAQ** and the last 30 messages of the conversation, including what your team wrote from the phone. Do not put secrets or personal data in the instructions or the FAQ.
 - The app requests zero-data-retention endpoints with `zdr: true` and `data_collection: "deny"`. OpenRouter only routes the request to providers that match those settings.
 - You can restrict providers further in your OpenRouter account settings (privacy and allowed providers).
-- Without `OPENROUTER_API_KEY`, no message leaves your Convex deployment. The built-in demo model runs inside it.
+- Without `OPENROUTER_API_KEY`, no message is sent to an AI provider: the built-in demo model runs inside your Convex deployment. Replies still reach the customer through pipes.bot and WhatsApp.
 - Tell your customers that an AI answers them, for example in the instructions ("Say that you are an AI assistant") or in your WhatsApp Business profile. Decide with your legal team whether you also need their consent.
 - Customer text appears in the dashboard as plain text.
 
@@ -312,7 +315,7 @@ Prompt injection: the tools only act on the current conversation, send no messag
 - Text only, and only inside the 24-hour window. There are no templates, so the AI cannot start a conversation or answer after the window closed.
 - The send rate limit is 60 requests per minute per API key, shared by every number of the App.
 - No business hours. The AI answers at any time while it is on.
-- At most 20 AI replies per conversation per hour.
+- At most 20 AI replies per conversation in each fixed one-hour window.
 - Your team answers only from the phone. There is no inbox in the dashboard.
 
 ## Error handling
@@ -326,9 +329,12 @@ Prompt injection: the tools only act on the current conversation, send no messag
 | A person replies or a button is used while the AI is thinking | Turn `dropped` (`stale`), nothing sent |
 | Model error or timeout | One retry after 10 s, then `waiting_human` with `ai_error` |
 | Reply over 600 characters | Cut at the end of a sentence |
-| 20 AI replies in an hour | `waiting_human` with `limit`, the model is not called |
-| Blocked number, closed window or another send failure | Message `failed`, `waiting_human` with `ai_error`, error in the header |
+| **AI replies** switched off while the AI is thinking | Turn `dropped` (`ai_disabled`), nothing sent |
+| 20 AI replies in the current one-hour window | `waiting_human` with `limit`, the model is not called |
+| Blocked number, closed window or another send failure | Message `failed`; `waiting_human` with `ai_error` and the error in the header, only if the conversation is still in `ai` |
 | 429 from pipes.bot | Up to 3 attempts in total, then `failed` |
+| 429 retry after your team took over | Message `failed` with `superseded`, not sent, mode unchanged |
+| Number re-onboarded into another workspace | The old workspace's conversations treat it as off: no reply scheduled or sent, its statuses change nothing |
 | Timeout while sending | `failed` with `unknown`, never retried |
 | `/v1/apps/token` fails | Error on the Numbers page |
 | Health check fails | The number shows as unknown |
@@ -353,7 +359,7 @@ Left out on purpose, and good next steps:
 
 **Tested:**
 
-- Automated tests: `pnpm test` (205 tests), `pnpm typecheck` and `pnpm build`.
+- Automated tests: `pnpm test` (217 tests), `pnpm typecheck` and `pnpm build`.
 - The webhook route on a local Convex backend (`pnpm simulate`): a correctly signed delivery returns 200, and a wrong `whsec_` secret, a bad signature and a missing signature each return 401.
 - A number path against the repo's mock pipes.bot API (`pnpm mock-api`) with `pk_smoke_test_key` and no OpenRouter key: a signed `number.onboarded` event linked a number to a workspace, a customer text produced a demo-model reply that the mock received on `/v1/messages/app/send` (and the message reached `sent`), and a following `smb_message_echoes` event moved the conversation to `human`.
 - The dashboard in a headless Chromium run against a local Convex backend with the demo model: load the demo data, an AI reply to a simulated customer message, asking for a person, a staff reply from the phone, handing back to the AI, a quote that creates a request, and marking the request done.
@@ -363,4 +369,5 @@ Left out on purpose, and good next steps:
 - A real OpenRouter model. Prompts and tools are covered with a mock model and the built-in demo model.
 - Sending with a real pipes.bot key. Sends are covered with a mocked `fetch`, the simulated demo number and the local mock API.
 - A real number with phone echoes, real webhooks and a real customer conversation.
+- The dashboard changes from the final review (the "Conversation not found" page, the **AI off** note in the conversation header and the wrapping nav bar) passed typecheck and build but were not checked in a browser. The backend changes from that review (moved numbers, switching the AI off mid-turn, superseded 429 retries, failed replies left out of the history) are covered by automated tests only.
 - The `ai-handoff` GitHub Actions job (the repo has no remote yet, so it has not run).
