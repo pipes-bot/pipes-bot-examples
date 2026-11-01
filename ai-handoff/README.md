@@ -353,7 +353,7 @@ Left out on purpose, and good next steps:
 
 **Tested:**
 
-- Automated tests: `pnpm test` (205 tests), `pnpm typecheck` and `pnpm build`, which are the commands the `ai-handoff` CI job runs. The GitHub Actions job has not run yet.
+- Automated tests: `pnpm test` (205 tests), `pnpm typecheck` and `pnpm build`.
 - The webhook route on a local Convex backend (`pnpm simulate`): a correctly signed delivery returns 200, and a wrong `whsec_` secret, a bad signature and a missing signature each return 401.
 - A number path against the repo's mock pipes.bot API (`pnpm mock-api`) with `pk_smoke_test_key` and no OpenRouter key: a signed `number.onboarded` event linked a number to a workspace, a customer text produced a demo-model reply that the mock received on `/v1/messages/app/send` (and the message reached `sent`), and a following `smb_message_echoes` event moved the conversation to `human`.
 - The dashboard in a headless Chromium run against a local Convex backend with the demo model: load the demo data, an AI reply to a simulated customer message, asking for a person, a staff reply from the phone, handing back to the AI, a quote that creates a request, and marking the request done.
@@ -363,3 +363,4 @@ Left out on purpose, and good next steps:
 - A real OpenRouter model. Prompts and tools are covered with a mock model and the built-in demo model.
 - Sending with a real pipes.bot key. Sends are covered with a mocked `fetch`, the simulated demo number and the local mock API.
 - A real number with phone echoes, real webhooks and a real customer conversation.
+- The `ai-handoff` GitHub Actions job (the repo has no remote yet, so it has not run).
