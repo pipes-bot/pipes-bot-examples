@@ -1,0 +1,13 @@
+{
+  "event": "number.onboarded",
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "data": {
+    "numberId": "pn_abc123",
+    "phoneNumber": "+15551234567",
+    "displayName": "Acme Support",
+    "appId": "app_abc123",
+    "metadata": {
+      "partnerId": "partner_123"
+    }
+  }
+}
