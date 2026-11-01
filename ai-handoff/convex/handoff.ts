@@ -31,6 +31,18 @@ export function stateOf(c: Doc<"conversations">): HandoffState {
   };
 }
 
+/**
+ * The conversation's number, or null when it is gone or was re-onboarded into another
+ * workspace. A moved number belongs to its new owner: the old workspace's conversations treat
+ * it as off, so they never reply or send through it.
+ */
+export function ownedNumber(
+  conversation: Doc<"conversations">,
+  number: Doc<"numbers"> | null,
+): Doc<"numbers"> | null {
+  return number && number.workspaceId === conversation.workspaceId ? number : null;
+}
+
 /** Cancels a scheduled reply unless it already ran (or was canceled). */
 export async function cancelJob(ctx: MutationCtx, jobId: Id<"_scheduled_functions">) {
   const job = await ctx.db.system.get(jobId);
@@ -50,7 +62,7 @@ export async function applyEvent(
   event: HandoffEvent,
   now: number,
 ): Promise<Doc<"conversations">> {
-  const number = await ctx.db.get(conversation.numberId);
+  const number = ownedNumber(conversation, await ctx.db.get(conversation.numberId));
   const workspace = await ctx.db.get(conversation.workspaceId);
   const before = stateOf(conversation);
   const { state, effects } = transition(before, event, {

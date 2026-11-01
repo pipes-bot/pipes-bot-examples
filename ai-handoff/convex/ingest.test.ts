@@ -457,6 +457,28 @@ describe("ingest", () => {
     expect(message).toMatchObject({ status: "failed", error: "meta_131049" });
   });
 
+  it("failed status of an old AI message after the number moved leaves the old conversation alone", async () => {
+    const t = makeT();
+    const a = await seedNumber(t, { ownerId: "user_a" });
+    const b = await seedWorkspace(t, "user_b");
+    await ingest(t, envelope(messageText));
+    const conversation = await only(t);
+    const wamid = statusFailed.whatsapp.statuses[0].id;
+    await insertAiMessage(t, conversation, wamid);
+    expect(await ingest(t, onboarded(POOL, b))).toBe("processed");
+    const before = await only(t);
+    expect(before.workspaceId).toBe(a);
+
+    expect(await ingest(t, envelope(statusFailed))).toBe("processed");
+
+    const after = await only(t);
+    expect(after).toEqual(before);
+    expect(after).toMatchObject({ mode: "ai" });
+    expect(after.lastError).toBeUndefined();
+    const message = (await all(t, "messages")).find((m) => m.wamid === wamid);
+    expect(message).toMatchObject({ status: "failed", error: "meta_131049" });
+  });
+
   it("user_changed_number migrates the conversation", async () => {
     const t = makeT();
     await seedNumber(t);

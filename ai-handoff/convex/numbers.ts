@@ -68,7 +68,10 @@ export const createSignupLink = action({
   },
 });
 
-/** Only flips the flag: `respond` re-checks it, so nothing is scheduled or canceled here. */
+/**
+ * Only flips the flag: `respond` and `commitReply` re-check it, so nothing is scheduled or
+ * canceled here, and a turn already running when the AI is switched off is dropped.
+ */
 export const setAiEnabled = mutation({
   args: { numberId: v.id("numbers"), enabled: v.boolean() },
   handler: async (ctx, { numberId, enabled }) => {

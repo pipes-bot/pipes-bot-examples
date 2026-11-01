@@ -2,7 +2,7 @@ import { v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
-import { applyEvent } from "./handoff";
+import { applyEvent, ownedNumber } from "./handoff";
 import { demoDecision, modelDecision, type ReplyDecision } from "./lib/decide";
 import {
   HISTORY_MESSAGES,
@@ -77,20 +77,21 @@ async function insertRun(ctx: MutationCtx, conversation: Doc<"conversations">, r
 
 type Context = {
   conversation: Doc<"conversations">;
-  number: Doc<"numbers">;
+  /** Null when the number is gone or now belongs to another workspace: the turn is dropped. */
+  number: Doc<"numbers"> | null;
   workspace: Doc<"workspaces">;
   messages: Doc<"messages">[];
 };
 
-/** Everything a turn needs, or null when the conversation (or its number) is gone. */
+/** Everything a turn needs, or null when the conversation (or its workspace) is gone. */
 export const context = internalQuery({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, { conversationId }): Promise<Context | null> => {
     const conversation = await ctx.db.get(conversationId);
     if (!conversation) return null;
-    const number = await ctx.db.get(conversation.numberId);
     const workspace = await ctx.db.get(conversation.workspaceId);
-    if (!number || !workspace) return null;
+    if (!workspace) return null;
+    const number = ownedNumber(conversation, await ctx.db.get(conversation.numberId));
     const latest = await ctx.db
       .query("messages")
       .withIndex("by_conversation_sent_at", (q) => q.eq("conversationId", conversationId))
@@ -141,19 +142,24 @@ export const commitReply = internalMutation({
       ...(decision?.usage ? { usage: decision.usage } : {}),
     };
 
-    // A person replied, the button was used or the customer wrote again while the model thought.
-    if (conversation.mode !== "ai" || conversation.aiTurn !== turn) {
+    const drop = async (dropReason: "stale" | "ai_disabled") => {
       await insertRun(ctx, conversation, {
         ...base,
         outcome: "dropped",
-        dropReason: "stale",
+        dropReason,
         ...(result.kind === "event" && result.event.kind === "ai_error"
           ? { error: result.event.error }
           : {}),
         finishedAt: now,
       });
       return null;
-    }
+    };
+
+    // A person replied, the button was used or the customer wrote again while the model thought.
+    if (conversation.mode !== "ai" || conversation.aiTurn !== turn) return drop("stale");
+    // AI replies were switched off (or the number moved to another workspace) meanwhile.
+    const number = ownedNumber(conversation, await ctx.db.get(conversation.numberId));
+    if (!number?.aiEnabled) return drop("ai_disabled");
 
     // This turn's job has run, so no reply is pending any more.
     if (conversation.pendingReplyJobId) {
@@ -215,7 +221,7 @@ export const respond = internalAction({
   returns: v.null(),
   handler: async (ctx, { conversationId, turn, attempt }): Promise<null> => {
     const startedAt = Date.now();
-    // Gone (demo reset, number removed): nothing to answer and nowhere to record a run.
+    // Gone (demo reset): nothing to answer and nowhere to record a run.
     const found: Context | null = await ctx.runQuery(internal.responder.context, { conversationId });
     if (!found) return null;
     const { conversation, number, workspace, messages } = found;
@@ -245,16 +251,18 @@ export const respond = internalAction({
     };
 
     if (conversation.mode !== "ai" || conversation.aiTurn !== turn) return drop("stale");
-    if (!number.aiEnabled) return drop("ai_disabled");
+    if (!number?.aiEnabled) return drop("ai_disabled");
     if (!windowState(conversation, startedAt).open) return drop("window_closed");
     if (replyLimitReached(conversation.aiReplies, startedAt)) {
       return commit({ kind: "event", event: { kind: "ai_limit" } });
     }
 
+    // A reply that never reached the customer is not part of the conversation.
+    const history = messages.filter((m) => !(m.source === "ai" && m.status === "failed"));
     let decision: ReplyDecision;
     try {
       decision = active
-        ? await modelDecision(active.model, systemPrompt(workspace), conversationBlock(messages))
+        ? await modelDecision(active.model, systemPrompt(workspace), conversationBlock(history))
         : demoDecision(lastCustomerText(messages));
     } catch (e) {
       const error = `The AI could not answer: ${errorMessage(e).slice(0, ERROR_CHARS)}`;

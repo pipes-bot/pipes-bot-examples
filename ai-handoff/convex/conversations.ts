@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import { requireConversation, requireWorkspace } from "./authz";
-import { applyEvent } from "./handoff";
+import { applyEvent, ownedNumber } from "./handoff";
 import { windowState, type HandoffReason, type Mode, type Source, type Window } from "./lib/handoff";
 
 const LIST_LIMIT = 100;
@@ -41,7 +41,8 @@ function toRow(c: Doc<"conversations">, number: Doc<"numbers"> | null, now: numb
     lastPreview: c.lastPreview,
     lastFrom: c.lastFrom,
     numberName: number?.displayName ?? "",
-    aiEnabled: number?.aiEnabled ?? false,
+    // A number re-onboarded into another workspace is off for this one.
+    aiEnabled: ownedNumber(c, number)?.aiEnabled ?? false,
     isDemo: number?.isDemo ?? false,
     window: windowState(c, now),
   };

@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
-import { applyEvent } from "./handoff";
+import { applyEvent, ownedNumber } from "./handoff";
 import { previewOf, STALE_MESSAGE_MS, type HandoffEvent, type Source } from "./lib/handoff";
 import {
   contactName,
@@ -196,7 +196,12 @@ function customerEvent(content: { type: string; text?: string }, stale: boolean)
 }
 
 /** Returns false when the message is unknown (e.g. the status raced the send that stores its wamid). */
-async function projectStatus(ctx: MutationCtx, status: any, now: number): Promise<boolean> {
+async function projectStatus(
+  ctx: MutationCtx,
+  number: Doc<"numbers">,
+  status: any,
+  now: number,
+): Promise<boolean> {
   const wamid = str(status?.id);
   const state = str(status?.status);
   if (!wamid || !state) return false;
@@ -211,7 +216,8 @@ async function projectStatus(ctx: MutationCtx, status: any, now: number): Promis
     const sendError = typeof code === "number" ? metaSendError(code) : (error ?? "delivery_failed");
     if (message.source === "ai") {
       const conversation = await ctx.db.get(message.conversationId);
-      if (conversation?.mode === "ai") {
+      // An old message of a number now owned by another workspace changes nothing here.
+      if (conversation?.mode === "ai" && ownedNumber(conversation, number)) {
         await applyEvent(
           ctx,
           conversation,
@@ -291,7 +297,7 @@ async function projectEnvelope(
       applied = true;
     }
     for (const status of list(whatsapp?.statuses)) {
-      if (await projectStatus(ctx, status, clock.now)) applied = true;
+      if (await projectStatus(ctx, number, status, clock.now)) applied = true;
     }
   } else if (payload.field === "smb_message_echoes") {
     for (const echo of list(whatsapp?.message_echoes)) {

@@ -7,7 +7,7 @@ import {
   internalQuery,
   type MutationCtx,
 } from "./_generated/server";
-import { applyEvent } from "./handoff";
+import { applyEvent, ownedNumber } from "./handoff";
 import { SEND_TIMEOUT_MS, countReply, previewOf } from "./lib/handoff";
 import { apiBaseUrl } from "./lib/env";
 import { parseSendFailure, rateLimitDelayMs, sendErrorMessage, type SendError } from "./lib/send";
@@ -61,7 +61,9 @@ export const deliveryContext = internalQuery({
     if (!message) return null;
     const conversation = await ctx.db.get(message.conversationId);
     if (!conversation) return null;
-    return { message, conversation, number: await ctx.db.get(conversation.numberId) };
+    // A number re-onboarded into another workspace is gone for this conversation's messages.
+    const number = ownedNumber(conversation, await ctx.db.get(conversation.numberId));
+    return { message, conversation, number };
   },
 });
 
@@ -83,9 +85,10 @@ export const finish = internalMutation({
       return null;
     }
     await ctx.db.patch(messageId, { status: "failed", error: outcome.error });
-    // Re-read: a take over may have moved the conversation out of `ai` meanwhile.
+    // Re-read: a take over may have moved the conversation out of `ai` meanwhile. A superseded
+    // reply was dropped on purpose, so it is not an AI error.
     const conversation = await ctx.db.get(message.conversationId);
-    if (conversation?.mode === "ai") {
+    if (conversation?.mode === "ai" && outcome.error !== "superseded") {
       await applyEvent(
         ctx,
         conversation,
@@ -187,6 +190,11 @@ export const deliver = internalAction({
       await ctx.runMutation(internal.sending.finish, { messageId, outcome });
       return outcome.status;
     };
+
+    // A 429 retry waited a while: if staff took over meanwhile, the AI reply must not go out.
+    if ((message.attempt ?? 1) > 1 && conversation.mode !== "ai") {
+      return await finishWith({ status: "failed", error: "superseded" });
+    }
 
     if (number.health?.canSendMessage === "BLOCKED") {
       return await finishWith({ status: "failed", error: "number_blocked" });

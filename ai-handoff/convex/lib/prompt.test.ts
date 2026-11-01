@@ -68,14 +68,33 @@ describe("trimReply", () => {
   });
 
   it("cuts after the last sentence end", () => {
-    const t = "a".repeat(399) + "." + "b".repeat(300);
+    const t = "a".repeat(399) + ". " + "b".repeat(300);
     const out = trimReply(t);
     expect(out).toHaveLength(400);
     expect(out.endsWith(".")).toBe(true);
-    const t2 = "a".repeat(400) + "." + "b".repeat(299);
+    const t2 = "a".repeat(400) + "!\n" + "b".repeat(299);
     const out2 = trimReply(t2);
     expect(out2).toHaveLength(401);
-    expect(out2.endsWith(".")).toBe(true);
+    expect(out2.endsWith("!")).toBe(true);
+  });
+
+  it("cuts at a newline", () => {
+    const t = "a".repeat(300) + "\n" + "b".repeat(400);
+    expect(trimReply(t)).toBe("a".repeat(300));
+  });
+
+  it("does not cut at a decimal point", () => {
+    const head = "a".repeat(500) + ". It costs ";
+    const t = head + "b".repeat(590 - head.length) + " $3.50 each " + "c".repeat(100);
+    expect(t.indexOf("$3.50")).toBeGreaterThan(580);
+    expect(t.length).toBeGreaterThan(600);
+    expect(trimReply(t)).toBe("a".repeat(500) + ".");
+  });
+
+  it("a period glued to the next word is not a sentence end", () => {
+    const out = trimReply("see example.com/" + "x".repeat(700));
+    expect(out).toHaveLength(600);
+    expect(out.endsWith("…")).toBe(true);
   });
 
   it("cuts at 600 with an ellipsis when there is no sentence end", () => {

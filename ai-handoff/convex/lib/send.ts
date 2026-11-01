@@ -8,6 +8,7 @@ export type SendError =
   | "not_configured"
   | "unknown"
   | "network_error"
+  | "superseded"
   | (string & {}); // any other API code, e.g. "meta_131026"
 
 export type SendResult = {
@@ -59,6 +60,8 @@ export function sendErrorMessage(error: SendError): string {
       return "pipes.bot did not answer in 30 seconds. The message may or may not have been sent.";
     case "network_error":
       return "Could not reach pipes.bot. The message may or may not have been sent.";
+    case "superseded":
+      return "Not sent: your team took over the conversation before the retry.";
     case "no_recipient":
       return "This contact has no phone number or WhatsApp user ID.";
     default:

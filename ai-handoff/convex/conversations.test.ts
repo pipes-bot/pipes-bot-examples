@@ -144,6 +144,23 @@ describe("conversations.list", () => {
   });
 });
 
+describe("a number moved to another workspace", () => {
+  it("shows the old workspace's conversations with the AI off", async () => {
+    const t = makeT();
+    const a = await seedWorkspace(t, "user_a");
+    const b = await seedWorkspace(t, "user_b");
+    const id = await addConversation(t, a);
+    // Re-onboarded into workspace b, where the AI is on.
+    await t.run((ctx) => ctx.db.patch(a.numberId, { workspaceId: b.workspaceId, aiEnabled: true }));
+
+    const user = t.withIdentity({ subject: "user_a" });
+    const [row] = await user.query(api.conversations.list, { tab: "all" });
+    expect(row).toMatchObject({ id, aiEnabled: false });
+    const { conversation } = await user.query(api.conversations.get, { conversationId: id });
+    expect(conversation.aiEnabled).toBe(false);
+  });
+});
+
 describe("conversations.get", () => {
   it("get returns messages in order", async () => {
     const t = makeT();

@@ -4,7 +4,7 @@ import messageText from "../tests/fixtures/message-text.json";
 import numberOnboarded from "../tests/fixtures/number-onboarded.json";
 import smbMessageEcho from "../tests/fixtures/smb-message-echo.json";
 import { makeT } from "../tests/helpers";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { applyEvent } from "./handoff";
 import { ingestPayload } from "./ingest";
@@ -153,6 +153,34 @@ async function seedNumber(t: T) {
   });
   return workspaceId;
 }
+
+/** Re-onboards the pool number into a new workspace and turns the AI on there. */
+async function moveNumberToNewWorkspace(t: T) {
+  const other = await t.run((ctx) =>
+    ctx.db.insert("workspaces", {
+      ownerId: "user_2",
+      name: "Other",
+      instructions: "",
+      faq: "",
+      idleMinutes: 30,
+    }),
+  );
+  const onboarded = structuredClone(numberOnboarded) as any;
+  onboarded.data.numberId = POOL;
+  onboarded.data.metadata = { ...onboarded.data.metadata, workspaceId: other };
+  expect(await ingest(t, onboarded)).toBe("processed");
+  await t.run(async (ctx) => {
+    const number = (await ctx.db.query("numbers").first())!;
+    expect(number.workspaceId).toBe(other);
+    await ctx.db.patch(number._id, { aiEnabled: true });
+  });
+  return other;
+}
+
+const pendingReplies = async (t: T) =>
+  (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter(
+    (j) => j.name === "responder:respond" && j.state.kind === "pending",
+  );
 
 /** Seeds the number and a conversation whose customer just wrote `text`. */
 async function seedConversation(t: T, text = "Does it come in another color?") {
@@ -513,6 +541,97 @@ describe("respond", () => {
     expect((await conversation(t)).mode).toBe("ai");
   });
 
+  it("AI switched off while the model thinks drops the turn", async () => {
+    const { entered, open } = useGatedModel(textResult("Too late."), textResult("unused"));
+    const t = makeT();
+    const id = await seedConversation(t);
+
+    vi.setSystemTime(NOW + 4000);
+    const running = t.action(internal.responder.respond, { conversationId: id, turn: 1, attempt: 1 });
+    await entered;
+    await t.run(async (ctx) => {
+      const number = (await ctx.db.query("numbers").first())!;
+      await ctx.db.patch(number._id, { aiEnabled: false });
+    });
+    open();
+    await running;
+
+    expect(await aiMessages(t)).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const runs = await all(t, "aiRuns");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ outcome: "dropped", dropReason: "ai_disabled", turn: 1 });
+    const after = await conversation(t);
+    expect(after).toMatchObject({ mode: "ai", aiTurn: 1, lastFrom: "customer" });
+    expect(after.aiReplies.count).toBe(0);
+  });
+
+  it("a number moved to another workspace drops the old workspace's turn", async () => {
+    const model = useModel(textResult("unused"));
+    const t = makeT();
+    await seedConversation(t);
+    await moveNumberToNewWorkspace(t);
+
+    await drain(t);
+
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(await aiMessages(t)).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const [run] = await all(t, "aiRuns");
+    expect(run).toMatchObject({ outcome: "dropped", dropReason: "ai_disabled" });
+  });
+
+  it("hand back in the old workspace after the number moved schedules and sends nothing", async () => {
+    const model = useModel(textResult("unused"));
+    const t = makeT();
+    const id = await seedConversation(t);
+    const owner = t.withIdentity({ subject: "user_1" });
+    await owner.mutation(api.conversations.takeOver, { conversationId: id });
+    await moveNumberToNewWorkspace(t);
+
+    await owner.mutation(api.conversations.handBack, { conversationId: id });
+
+    expect(await conversation(t)).toMatchObject({ mode: "ai", lastFrom: "customer" });
+    expect(await pendingReplies(t)).toHaveLength(0);
+    await drain(t);
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(await aiMessages(t)).toHaveLength(0);
+    expect(await all(t, "aiRuns")).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("failed AI messages are left out of the model's history", async () => {
+    const model = useModel(textResult("Yes, in blue."));
+    const t = makeT();
+    const id = await seedConversation(t, "Does it come in another color?");
+    await t.run(async (ctx) => {
+      const c = (await ctx.db.get(id))!;
+      for (const [text, status] of [
+        ["This one never arrived.", "failed"],
+        ["This one arrived.", "sent"],
+      ] as const) {
+        await ctx.db.insert("messages", {
+          workspaceId: c.workspaceId,
+          conversationId: id,
+          numberId: c.numberId,
+          direction: "out",
+          source: "ai",
+          type: "text",
+          text,
+          status,
+          sentAt: NOW + 1,
+        });
+      }
+    });
+
+    await drain(t);
+
+    const prompt = promptText(model, 0);
+    expect(prompt).toContain("Customer: Does it come in another color?");
+    expect(prompt).toContain("Assistant: This one arrived.");
+    expect(prompt).not.toContain("This one never arrived.");
+  });
+
   it("closed window drops the turn", async () => {
     const model = useModel(textResult("unused"));
     const t = makeT();
@@ -579,6 +698,38 @@ describe("respond", () => {
     const [run] = await all(t, "aiRuns");
     expect(run).toMatchObject({ outcome: "handed_off", model: "demo" });
     expect(run.usage).toBeUndefined();
+  });
+});
+
+describe("lazy resume through ingest", () => {
+  it("a customer text after the idle timeout brings the AI back and gets a reply", async () => {
+    vi.mocked(getModel).mockReturnValue(null);
+    const t = makeT();
+    await seedNumber(t);
+    // The team wrote first from the phone: the conversation starts in `human` with a timer.
+    await ingest(t, echoToCustomer());
+    const before = await conversation(t);
+    expect(before).toMatchObject({ mode: "human", handoffReason: "phone_reply" });
+    expect(before.resumeAt! - NOW).toBeGreaterThanOrEqual(30 * 60_000);
+    expect(before.resumeAt! - NOW).toBeLessThan(31 * 60_000);
+
+    vi.setSystemTime(NOW + 31 * 60_000);
+    expect(await ingest(t, customerText("Is the shop open today?"))).toBe("processed");
+    expect(await conversation(t)).toMatchObject({ mode: "ai" });
+
+    await drain(t);
+
+    const messages = await aiMessages(t);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ status: "sent", wamid: "wamid.ai" });
+    expect(messages[0].text).toContain("This is a demo reply");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(SEND_URL);
+    const [run] = await all(t, "aiRuns");
+    expect(run).toMatchObject({ outcome: "sent", model: "demo" });
+    const after = await conversation(t);
+    expect(after).toMatchObject({ mode: "ai", lastFrom: "ai" });
+    expect(after.resumeAt).toBeUndefined();
   });
 });
 

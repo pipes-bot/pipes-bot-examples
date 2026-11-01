@@ -408,6 +408,60 @@ describe("deliver", () => {
   });
 });
 
+describe("deliver after a workspace change", () => {
+  it("a pending message of a number moved to another workspace is gone, without fetch", async () => {
+    const { t, conversationId, numberId } = await seed();
+    const fetchMock = stubFetch(ok());
+    const messageId = await queueReply(t, conversationId);
+    // The number is re-onboarded into another workspace before the delivery runs.
+    await t.run(async (ctx) => {
+      const other = await ctx.db.insert("workspaces", {
+        ownerId: "user_b",
+        name: "Other",
+        instructions: "",
+        faq: "",
+        idleMinutes: 30,
+      });
+      await ctx.db.patch(numberId, { workspaceId: other, aiEnabled: true });
+    });
+
+    expect(await t.action(internal.sending.deliver, { messageId })).toBe("gone");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await getMessage(t, messageId))?.status).toBe("pending");
+    expect((await getConversation(t, conversationId))?.mode).toBe("ai");
+  });
+});
+
+describe("deliver retry after a take over", () => {
+  it("a 429-queued reply is not sent once staff took over", async () => {
+    const { t, conversationId } = await seed();
+    const fetchMock = stubFetch(
+      () => jsonResponse({ error: "Too many", code: "RATE_LIMITED" }, 429),
+      ok("wamid.Late"),
+    );
+    const messageId = await queueReply(t, conversationId);
+    expect(await t.action(internal.sending.deliver, { messageId })).toBe("queued");
+    await t.run((ctx) =>
+      ctx.db.patch(conversationId, { mode: "human", modeChangedAt: NOW, handoffReason: "manual" }),
+    );
+
+    await drain(t);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await getMessage(t, messageId)).toMatchObject({
+      status: "failed",
+      error: "superseded",
+      attempt: 2,
+    });
+    const conversation = await getConversation(t, conversationId);
+    expect(conversation).toMatchObject({ mode: "human", handoffReason: "manual" });
+    expect(conversation?.lastError).toBeUndefined();
+    expect(sendErrorMessage("superseded")).toBe(
+      "Not sent: your team took over the conversation before the retry.",
+    );
+  });
+});
+
 describe("markDelivered", () => {
   it("moves sent to delivered only", async () => {
     const { t, conversationId } = await seed();

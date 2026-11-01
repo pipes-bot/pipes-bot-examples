@@ -46,17 +46,24 @@ export function conversationBlock(
   return `<conversation>\n${lines.join("\n")}\n</conversation>`;
 }
 
+const SENTENCE_END = new Set([".", "!", "?", "…"]);
+
+/**
+ * Index of the last sentence end in `t` before `limit`: a newline, or `.`, `!`, `?` or `…`
+ * followed by whitespace or the end of the text (so "$3.50" or "example.com" do not count).
+ */
+function lastSentenceEnd(t: string, limit: number): number {
+  for (let i = Math.min(limit, t.length) - 1; i >= 0; i--) {
+    if (t[i] === "\n") return i;
+    if (SENTENCE_END.has(t[i]) && (i + 1 === t.length || /\s/.test(t[i + 1]))) return i;
+  }
+  return -1;
+}
+
 export function trimReply(text: string): string {
   const t = text.trim();
   if (t.length <= REPLY_MAX_CHARS) return t;
-  const head = t.slice(0, REPLY_MAX_CHARS);
-  const end = Math.max(
-    head.lastIndexOf("."),
-    head.lastIndexOf("!"),
-    head.lastIndexOf("?"),
-    head.lastIndexOf("…"),
-    head.lastIndexOf("\n"),
-  );
-  if (end < 0) return t.slice(0, REPLY_MAX_CHARS - 1) + "…";
-  return head.slice(0, end + 1).trim();
+  const end = lastSentenceEnd(t, REPLY_MAX_CHARS);
+  const cut = end < 0 ? "" : t.slice(0, end + 1).trim();
+  return cut || t.slice(0, REPLY_MAX_CHARS - 1) + "…";
 }
