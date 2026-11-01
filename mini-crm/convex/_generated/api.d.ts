@@ -8,13 +8,21 @@
  * @module
  */
 
+import type * as http from "../http.js";
+import type * as mcp_http from "../mcp/http.js";
+import type * as mcp_server from "../mcp/server.js";
+
 import type {
   ApiFromModules,
   FilterApi,
   FunctionReference,
 } from "convex/server";
 
-declare const fullApi: ApiFromModules<{}>;
+declare const fullApi: ApiFromModules<{
+  http: typeof http;
+  "mcp/http": typeof mcp_http;
+  "mcp/server": typeof mcp_server;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
