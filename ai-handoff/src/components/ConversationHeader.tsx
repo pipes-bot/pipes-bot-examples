@@ -1,9 +1,11 @@
+import { Link } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { conversationTitle } from "@/components/ConversationList";
 import { StateBadge } from "@/components/StateBadge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { errorMessage, resumeLabel } from "@/lib/format";
 import { api } from "../../convex/_generated/api";
@@ -20,6 +22,7 @@ type Props = {
     handoffSummary?: string;
     resumeAt?: number;
     lastError?: string;
+    aiEnabled: boolean;
     window: Window;
   };
   now: number;
@@ -47,6 +50,7 @@ export function ConversationHeader({ conversation, now }: Props) {
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-xl font-semibold">{conversationTitle(conversation)}</h1>
         <StateBadge mode={conversation.mode} />
+        {!conversation.aiEnabled && <Badge variant="outline">AI off</Badge>}
         <div className="ml-auto flex gap-2">
           {conversation.mode !== "human" && (
             <Button variant="outline" disabled={busy} onClick={() => run(() => takeOver({ conversationId }))}>
@@ -74,7 +78,18 @@ export function ConversationHeader({ conversation, now }: Props) {
           <AlertDescription>{conversation.lastError}</AlertDescription>
         </Alert>
       )}
-      <p className="text-sm text-muted-foreground">{resumeLabel(conversation, now)}</p>
+      {conversation.aiEnabled ? (
+        <p className="text-sm text-muted-foreground">{resumeLabel(conversation, now)}</p>
+      ) : (
+        // Hand back still changes the mode; the AI just does not answer until it is turned on.
+        <p className="text-sm text-muted-foreground">
+          AI replies are off for this number. Turn them on in{" "}
+          <Link to="/numbers" className="font-medium underline">
+            Numbers
+          </Link>
+          .
+        </p>
+      )}
       {!conversation.window.open && (
         <p className="text-sm text-muted-foreground">
           The 24-hour window is closed, so the AI cannot reply until the customer writes again.

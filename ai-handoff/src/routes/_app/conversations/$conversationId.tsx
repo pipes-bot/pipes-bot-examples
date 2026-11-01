@@ -11,7 +11,21 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/_app/conversations/$conversationId")({
   component: ConversationPage,
+  // conversations.get throws "Not found" for a deleted conversation (e.g. after a demo reset) or
+  // one of another workspace, and a validation error for a malformed id.
+  errorComponent: ConversationNotFound,
 });
+
+function ConversationNotFound() {
+  return (
+    <div className="space-y-2">
+      <h1 className="text-xl font-semibold">Conversation not found</h1>
+      <Link to="/" className="text-sm font-medium underline">
+        Back to Conversations
+      </Link>
+    </div>
+  );
+}
 
 function ConversationPage() {
   const { conversationId } = Route.useParams();

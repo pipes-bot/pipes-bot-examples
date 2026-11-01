@@ -67,7 +67,7 @@ function SignedInShell() {
   return (
     <div className="min-h-screen">
       <header className="border-b">
-        <nav className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3 text-sm">
+        <nav className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-sm">
           <Link to="/" activeOptions={{ exact: true }} activeProps={{ className: "font-medium" }}>
             Conversations
           </Link>
