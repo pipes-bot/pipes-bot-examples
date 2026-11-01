@@ -8,20 +8,10 @@ import {
   query,
 } from "./_generated/server";
 import { requireWorkspace } from "./authz";
+import { apiBaseUrl, requireEnv } from "./lib/env";
 import { healthValidator } from "./schema";
 
-const DEFAULT_API_BASE_URL = "https://api.pipes.bot";
 const HEALTH_TIMEOUT_MS = 15_000;
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new ConvexError(`${name} is not set`);
-  return value;
-}
-
-function apiBaseUrl(): string {
-  return process.env.PIPES_API_BASE_URL || DEFAULT_API_BASE_URL;
-}
 
 export const list = query({
   args: {},

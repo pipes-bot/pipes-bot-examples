@@ -1,5 +1,6 @@
 import { convexTest } from "convex-test";
 import { api, components } from "../convex/_generated/api";
+import type { Doc, Id } from "../convex/_generated/dataModel";
 import betterAuthSchema from "../convex/betterAuth/schema";
 import schema from "../convex/schema";
 
@@ -98,4 +99,49 @@ export async function seedConsent(
       },
     });
   });
+}
+
+export const HOUR = 3_600_000;
+
+export function seedNumber(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  extra: Partial<Doc<"numbers">> = {},
+) {
+  return t.run((ctx) =>
+    ctx.db.insert("numbers", {
+      workspaceId,
+      poolNumberId: "pn_1",
+      phoneNumber: "+15550001111",
+      displayName: "Support",
+      connectedAt: 0,
+      ...extra,
+    }),
+  );
+}
+
+/** A lead whose 24h window is open (last wrote an hour ago) unless overridden. */
+export function seedContact(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  numberId: Id<"numbers">,
+  overrides: Partial<Doc<"contacts">> = {},
+) {
+  const now = Date.now();
+  return t.run((ctx) =>
+    ctx.db.insert("contacts", {
+      workspaceId,
+      waId: "5511900000000",
+      name: "Ana",
+      stage: "lead",
+      tags: [],
+      lastNumberId: numberId,
+      lastInboundAt: now - HOUR,
+      lastMessageAt: now - HOUR,
+      lastDirection: "in",
+      unread: 1,
+      searchText: "Ana 5511900000000",
+      ...overrides,
+    }),
+  );
 }

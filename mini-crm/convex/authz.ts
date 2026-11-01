@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -13,6 +14,15 @@ export async function requireWorkspace(ctx: Ctx): Promise<Doc<"workspaces">> {
     .first();
   if (!workspace) throw new ConvexError("Workspace not found");
   return workspace;
+}
+
+/** Actions have no db: the workspace is resolved through an internal query. */
+export async function requireWorkspaceId(ctx: ActionCtx): Promise<Id<"workspaces">> {
+  const ownerId = (await ctx.auth.getUserIdentity())?.subject;
+  if (!ownerId) throw new ConvexError("Not signed in");
+  const workspace = await ctx.runQuery(internal.workspaces.byOwner, { ownerId });
+  if (!workspace) throw new ConvexError("Workspace not found");
+  return workspace._id;
 }
 
 // A document of another workspace is reported exactly like a missing one.
