@@ -9,50 +9,204 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as SignUpRouteImport } from './routes/sign-up'
+import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppRequestsRouteImport } from './routes/_app/requests'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppNumbersIndexRouteImport } from './routes/_app/numbers/index'
+import { Route as AppNumbersConnectedRouteImport } from './routes/_app/numbers/connected'
 
-const IndexRoute = IndexRouteImport.update({
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignInRoute = SignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignUpRoute = SignUpRouteImport.update({
+  id: '/sign-up',
+  path: '/sign-up',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRequestsRoute = AppRequestsRouteImport.update({
+  id: '/requests',
+  path: '/requests',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppNumbersIndexRoute = AppNumbersIndexRouteImport.update({
+  id: '/numbers/',
+  path: '/numbers/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppNumbersConnectedRoute = AppNumbersConnectedRouteImport.update({
+  id: '/numbers/connected',
+  path: '/numbers/connected',
+  getParentRoute: () => AppRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof AppIndexRoute
+  '/sign-in': typeof SignInRoute
+  '/sign-up': typeof SignUpRoute
+  '/requests': typeof AppRequestsRoute
+  '/settings': typeof AppSettingsRoute
+  '/numbers/connected': typeof AppNumbersConnectedRoute
+  '/numbers/': typeof AppNumbersIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
+  '/sign-in': typeof SignInRoute
+  '/sign-up': typeof SignUpRoute
+  '/requests': typeof AppRequestsRoute
+  '/settings': typeof AppSettingsRoute
+  '/': typeof AppIndexRoute
+  '/numbers/connected': typeof AppNumbersConnectedRoute
+  '/numbers': typeof AppNumbersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
+  '/sign-in': typeof SignInRoute
+  '/sign-up': typeof SignUpRoute
+  '/_app/requests': typeof AppRequestsRoute
+  '/_app/settings': typeof AppSettingsRoute
+  '/_app/': typeof AppIndexRoute
+  '/_app/numbers/connected': typeof AppNumbersConnectedRoute
+  '/_app/numbers/': typeof AppNumbersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/sign-in'
+    | '/sign-up'
+    | '/requests'
+    | '/settings'
+    | '/numbers/connected'
+    | '/numbers/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/sign-in'
+    | '/sign-up'
+    | '/requests'
+    | '/settings'
+    | '/'
+    | '/numbers/connected'
+    | '/numbers'
+  id:
+    | '__root__'
+    | '/_app'
+    | '/sign-in'
+    | '/sign-up'
+    | '/_app/requests'
+    | '/_app/settings'
+    | '/_app/'
+    | '/_app/numbers/connected'
+    | '/_app/numbers/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
+  SignInRoute: typeof SignInRoute
+  SignUpRoute: typeof SignUpRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-in': {
+      id: '/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof SignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-up': {
+      id: '/sign-up'
+      path: '/sign-up'
+      fullPath: '/sign-up'
+      preLoaderRoute: typeof SignUpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/': {
+      id: '/_app/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/requests': {
+      id: '/_app/requests'
+      path: '/requests'
+      fullPath: '/requests'
+      preLoaderRoute: typeof AppRequestsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/numbers/': {
+      id: '/_app/numbers/'
+      path: '/numbers'
+      fullPath: '/numbers/'
+      preLoaderRoute: typeof AppNumbersIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/numbers/connected': {
+      id: '/_app/numbers/connected'
+      path: '/numbers/connected'
+      fullPath: '/numbers/connected'
+      preLoaderRoute: typeof AppNumbersConnectedRouteImport
+      parentRoute: typeof AppRoute
     }
   }
 }
 
+interface AppRouteChildren {
+  AppRequestsRoute: typeof AppRequestsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
+  AppIndexRoute: typeof AppIndexRoute
+  AppNumbersConnectedRoute: typeof AppNumbersConnectedRoute
+  AppNumbersIndexRoute: typeof AppNumbersIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppRequestsRoute: AppRequestsRoute,
+  AppSettingsRoute: AppSettingsRoute,
+  AppIndexRoute: AppIndexRoute,
+  AppNumbersConnectedRoute: AppNumbersConnectedRoute,
+  AppNumbersIndexRoute: AppNumbersIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
+  SignInRoute: SignInRoute,
+  SignUpRoute: SignUpRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
