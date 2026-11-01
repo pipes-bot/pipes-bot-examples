@@ -9,6 +9,7 @@ export type SendError =
   | "rate_limited"
   | "not_configured"
   | "timeout"
+  | "network_error"
   | (string & {}); // any other API code, e.g. "meta_131026"
 
 export type SendResult = {
@@ -57,6 +58,8 @@ export function sendErrorMessage(error: SendError): string {
       return "PIPES_API_KEY is not set on the Convex deployment.";
     case "timeout":
       return "pipes.bot did not answer in 30 seconds. The message may or may not have been sent.";
+    case "network_error":
+      return "Could not reach pipes.bot. The message may or may not have been sent.";
     case "invalid_text":
       return "Message must be 1–4096 characters.";
     case "no_recipient":

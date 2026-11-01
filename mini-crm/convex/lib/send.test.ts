@@ -46,4 +46,10 @@ describe("sendErrorMessage", () => {
     expect(sendErrorMessage("invalid_text")).toBe("Message must be 1–4096 characters.");
     expect(sendErrorMessage("meta_131026")).toBe("Sending failed (meta_131026).");
   });
+  test("timeouts and network errors both warn about a possible double send", () => {
+    expect(sendErrorMessage("timeout")).toContain("may or may not have been sent");
+    expect(sendErrorMessage("network_error")).toBe(
+      "Could not reach pipes.bot. The message may or may not have been sent.",
+    );
+  });
 });

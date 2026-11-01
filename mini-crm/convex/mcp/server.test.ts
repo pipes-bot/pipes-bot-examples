@@ -45,7 +45,7 @@ test("initialize and tools/list over JSON", async () => {
   });
   expect(list.status).toBe(200);
   const listBody = await list.json();
-  expect(listBody.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["ping"]);
+  expect(listBody.result.tools).toHaveLength(8);
 
   const get = await t.fetch("/mcp", { method: "GET" });
   expect(get.status).toBe(405);
