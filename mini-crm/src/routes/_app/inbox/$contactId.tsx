@@ -19,10 +19,16 @@ function ContactConversation() {
   if (detail === undefined) return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
   if (detail === null) return <NotAvailable />;
   return (
-    // Keyed so drafts, the composer and the name field start fresh for each contact.
-    <div key={contactId} className="grid h-full min-h-0 lg:grid-cols-[1fr_18rem]">
-      <Conversation contact={detail.contact} />
-      <div className="hidden min-h-0 lg:flex lg:flex-col">
+    // Keyed so drafts, the composer and the name field start fresh for each contact. Below `lg` the
+    // contact panel sits under the conversation (which keeps the full height) and the page scrolls.
+    <div
+      key={contactId}
+      className="h-full min-h-0 overflow-y-auto lg:grid lg:grid-cols-[1fr_18rem] lg:overflow-hidden"
+    >
+      <div className="grid h-full min-h-0">
+        <Conversation contact={detail.contact} />
+      </div>
+      <div className="border-t lg:flex lg:min-h-0 lg:flex-col lg:border-t-0">
         <ContactPanel contact={detail.contact} notes={detail.notes} activities={detail.activities} />
       </div>
     </div>

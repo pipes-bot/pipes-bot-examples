@@ -56,7 +56,10 @@ export function ContactPanel({
   }
 
   return (
-    <aside className="flex min-h-0 flex-col gap-5 overflow-y-auto border-l p-4 text-sm" aria-label="Contact details">
+    <aside
+      className="flex min-h-0 flex-col gap-5 p-4 text-sm lg:overflow-y-auto lg:border-l"
+      aria-label="Contact details"
+    >
       <div className="space-y-2">
         <Label htmlFor="contact-stage">Stage</Label>
         <Select value={contact.stage} onValueChange={(stage) => void change({ stage: stage as Stage }).catch(() => {})}>

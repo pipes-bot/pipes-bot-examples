@@ -1,4 +1,6 @@
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Composer } from "@/components/Composer";
 import { DraftCard } from "@/components/DraftCard";
@@ -33,6 +35,14 @@ export function Conversation({ contact }: { contact: ContactSummary }) {
   return (
     <section className="flex min-h-0 min-w-0 flex-col" aria-label={`Conversation with ${label}`}>
       <header className="flex items-center gap-2 border-b px-4 py-3">
+        {/* The inbox list is hidden below `md`, so this is the way back to it. */}
+        <Link
+          to="/inbox"
+          aria-label="Back to inbox"
+          className="-ml-1 rounded-md p-1 text-muted-foreground hover:text-foreground md:hidden"
+        >
+          <ArrowLeft className="size-4" />
+        </Link>
         <div className="min-w-0">
           <h1 className="truncate text-base font-semibold">{label}</h1>
           {contact.name && contact.phone && (
