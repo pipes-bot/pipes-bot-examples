@@ -10,13 +10,17 @@
 
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
+import type * as handoff from "../handoff.js";
 import type * as http from "../http.js";
+import type * as ingest from "../ingest.js";
 import type * as lib_env from "../lib/env.js";
 import type * as lib_handoff from "../lib/handoff.js";
 import type * as lib_model from "../lib/model.js";
 import type * as lib_payload from "../lib/payload.js";
 import type * as lib_send from "../lib/send.js";
 import type * as lib_signature from "../lib/signature.js";
+import type * as responder from "../responder.js";
+import type * as webhook from "../webhook.js";
 import type * as workspaces from "../workspaces.js";
 
 import type {
@@ -28,13 +32,17 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authz: typeof authz;
+  handoff: typeof handoff;
   http: typeof http;
+  ingest: typeof ingest;
   "lib/env": typeof lib_env;
   "lib/handoff": typeof lib_handoff;
   "lib/model": typeof lib_model;
   "lib/payload": typeof lib_payload;
   "lib/send": typeof lib_send;
   "lib/signature": typeof lib_signature;
+  responder: typeof responder;
+  webhook: typeof webhook;
   workspaces: typeof workspaces;
 }>;
 
