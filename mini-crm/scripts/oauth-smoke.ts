@@ -13,6 +13,11 @@
  * Set SMOKE_PRINT_AUTHORIZE=1 to stop after registering a client and print only the authorize URL
  * (open it in a browser to check the SPA pages by hand).
  *
+ * Set SMOKE_KEEP=1 to skip step 10 and keep the smoke user and its consent: the script seeds the
+ * demo data (demo.seed), checks that `pipeline_summary` over /mcp shows the demo counts (so the
+ * signed-in user and the MCP principal share one workspace), and prints the access token and the
+ * user's Convex session JWT for manual checks (send_message, workspaces.update, convex data).
+ *
  * Steps (each prints `ok <step>`, or prints the response and exits 1):
  *   1. GET /.well-known/oauth-protected-resource/mcp and /.well-known/oauth-authorization-server → 200
  *   2. POST /mcp without a token → 401 with WWW-Authenticate
@@ -320,11 +325,34 @@ async function main() {
   }
   ok("refresh reuse rejected");
 
-  // 10. Revoke from Settings; the access token is still unexpired but /mcp must refuse it.
   const convexToken = await fetch(`${SITE}/api/auth/convex/token`, { headers: spaHeaders(cookie) });
-  await expectStatus("revoke", convexToken, 200);
-  const { token: sessionJwt } = await json<{ token?: string }>("revoke", convexToken);
-  if (!isJwt(sessionJwt)) await fail("revoke", null, "no Convex JWT from /api/auth/convex/token");
+  await expectStatus("convex token", convexToken, 200);
+  const { token: sessionJwt } = await json<{ token?: string }>("convex token", convexToken);
+  if (!isJwt(sessionJwt)) await fail("convex token", null, "no Convex JWT from /api/auth/convex/token");
+
+  if (process.env.SMOKE_KEEP) {
+    // Keep the user and the consent. Seed the demo data as the signed-in user, then read it back
+    // as the MCP principal: both must resolve to the same workspace.
+    await convexCall("mutation", "demo:seed", {}, sessionJwt!);
+    const summary = await fetch(`${SITE}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(latestAccessToken),
+      body: rpc(3, "tools/call", { name: "pipeline_summary", arguments: {} }),
+    });
+    await expectStatus("pipeline summary", summary, 200);
+    const result = await mcpResult<{ counts?: Record<string, number> }>("pipeline summary", summary);
+    const counts = result.structuredContent?.counts;
+    const expected = { lead: 5, qualified: 3, customer: 2, lost: 2 };
+    if (!counts || Object.entries(expected).some(([stage, n]) => counts[stage] !== n)) {
+      await fail("pipeline summary", null, `expected ${JSON.stringify(expected)}, got ${JSON.stringify(counts)}`);
+    }
+    ok("pipeline summary");
+    console.log(`ACCESS_TOKEN=${latestAccessToken}`);
+    console.log(`CONVEX_JWT=${sessionJwt}`);
+    return;
+  }
+
+  // 10. Revoke from Settings; the access token is still unexpired but /mcp must refuse it.
   const before = await convexCall<{ clientId: string }[]>("query", "connectedApps:list", {}, sessionJwt!);
   if (!before.some((app) => app.clientId === clientId)) {
     await fail("revoke", null, `connectedApps.list does not show the client: ${JSON.stringify(before)}`);
@@ -342,6 +370,21 @@ async function main() {
   });
   await expectStatus("revoke", revoked, 401);
   ok("revoke");
+}
+
+type ToolResult<S> = { isError?: boolean; structuredContent?: S };
+
+/** Parses a `tools/call` response (plain JSON or a single SSE event) into its result. */
+async function mcpResult<S>(step: string, response: Response): Promise<ToolResult<S>> {
+  const text = await response.text();
+  const data = text.startsWith("event:") || text.includes("\ndata:") || text.startsWith("data:")
+    ? text.split("\n").find((line) => line.startsWith("data:"))?.slice(5).trim() ?? ""
+    : text;
+  try {
+    return (JSON.parse(data) as { result: ToolResult<S> }).result;
+  } catch {
+    return await fail(step, null, `unparseable MCP response: ${text}`);
+  }
 }
 
 /** Calls a public Convex function through the HTTP API as the signed-in user. */

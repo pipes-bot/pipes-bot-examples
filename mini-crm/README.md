@@ -206,7 +206,7 @@ Because of 6, versions are pinned exactly: `better-auth@1.6.33`, `@better-auth/o
 
 ### OAuth smoke test
 
-`pnpm smoke:oauth` runs the whole flow against a local anonymous Convex backend, with the browser half simulated by requests that carry the `Better-Auth-Cookie` header: discovery, client registration, sign-up, authorize with PKCE, consent, JWT token exchange, `/mcp` `initialize` and `tools/list`, refresh rotation, a reused refresh token rejected, and revoke followed by a 401 on a token that has not expired. Start `CONVEX_AGENT_MODE=anonymous pnpm exec convex dev` and set `SITE_URL` and `BETTER_AUTH_SECRET` first. It runs `.ts` directly with Node, so it needs Node 22.18 or newer (built-in TypeScript type stripping). It is not part of CI because it needs the local backend.
+`pnpm smoke:oauth` runs the whole flow against a local anonymous Convex backend, with the browser half simulated by requests that carry the `Better-Auth-Cookie` header: discovery, client registration, sign-up, authorize with PKCE, consent, JWT token exchange, `/mcp` `initialize` and `tools/list`, refresh rotation, a reused refresh token rejected, and revoke followed by a 401 on a token that has not expired. Start `CONVEX_AGENT_MODE=anonymous pnpm exec convex dev` and set `SITE_URL` and `BETTER_AUTH_SECRET` first. It runs `.ts` directly with Node, so it needs Node 22.18 or newer (built-in TypeScript type stripping). It is not part of CI because it needs the local backend. With `SMOKE_KEEP=1` it skips the revoke step, seeds the demo data as the smoke user, checks that `pipeline_summary` over `/mcp` shows 5/3/2/2 (the signed-in user and the MCP client share one workspace), and prints the access token and the user's Convex JWT for manual calls.
 
 ## Security
 
@@ -261,6 +261,7 @@ Left out on purpose, and good next steps:
 
 - Automated tests: `pnpm test` (187 tests), `pnpm typecheck` and `pnpm build`, which are the commands the `mini-crm` CI job runs.
 - `pnpm smoke:oauth` passes end to end against a local anonymous Convex backend (steps listed above).
+- Over `/mcp` with the smoke token (`SMOKE_KEEP=1`): `send_message` in draft mode returns `draft_created` and the row is in `drafts`; after switching the workspace to `direct`, it returns `sent` for a demo contact. The webhook route answers 200 for a valid signature and 401 for a wrong secret or `--bad-signature` (`pnpm simulate`).
 - Browser flows, checked headless with Playwright against a local backend: sign-up, OAuth consent with Allow and Deny, sign-in continuing the OAuth flow, demo data, dragging a card between columns, **Move to…**, editing and sending a Claude draft, replying, the composer with the window closed, **Revoke**, and resetting the demo.
 
 **Not verified:**
