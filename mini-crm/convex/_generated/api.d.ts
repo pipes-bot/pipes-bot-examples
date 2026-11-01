@@ -14,6 +14,7 @@ import type * as contacts from "../contacts.js";
 import type * as crm from "../crm.js";
 import type * as crmRead from "../crmRead.js";
 import type * as crons from "../crons.js";
+import type * as demo from "../demo.js";
 import type * as drafts from "../drafts.js";
 import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   crm: typeof crm;
   crmRead: typeof crmRead;
   crons: typeof crons;
+  demo: typeof demo;
   drafts: typeof drafts;
   http: typeof http;
   ingest: typeof ingest;
