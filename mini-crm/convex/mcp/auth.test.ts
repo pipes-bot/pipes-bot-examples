@@ -1,3 +1,4 @@
+import { APIError } from "better-auth/api";
 import { verifyAccessToken } from "better-auth/oauth2";
 import { afterEach, expect, test, vi } from "vitest";
 import { makeT, seedConsent, seedUser, type TestConvex } from "../../tests/helpers";
@@ -35,7 +36,12 @@ function expectUnauthorized(result: Awaited<ReturnType<typeof authenticate>>) {
 
 afterEach(() => {
   verify.mockReset();
+  vi.restoreAllMocks();
 });
+
+function joseError(code: string, message: string) {
+  return Object.assign(new Error(message), { code });
+}
 
 test("missing header → 401 with WWW-Authenticate", async () => {
   const t = makeT();
@@ -46,13 +52,37 @@ test("missing header → 401 with WWW-Authenticate", async () => {
 
 test("verify throws → 401", async () => {
   const t = makeT();
-  verify.mockRejectedValue(new Error("invalid access token"));
+  verify.mockRejectedValue(new APIError("UNAUTHORIZED", { message: "invalid access token" }));
   expectUnauthorized(await authenticate(t, "Bearer tampered"));
   // The token is checked against this deployment's JWKS, issuer and MCP audience.
   expect(verify).toHaveBeenCalledWith("tampered", {
     jwksUrl: `${SITE}/api/auth/convex/jwks`,
     verifyOptions: { issuer: SITE, audience: `${SITE}/mcp` },
   });
+
+  verify.mockRejectedValue(new APIError("UNAUTHORIZED", { message: "token expired" }));
+  expectUnauthorized(await authenticate(t, "Bearer expired"));
+  // An unmapped JOSE token error is still the token's fault.
+  verify.mockRejectedValue(joseError("ERR_JWT_EXPIRED", '"exp" claim timestamp check failed'));
+  expectUnauthorized(await authenticate(t, "Bearer expired"));
+});
+
+test("verification infrastructure failure → 503 without a challenge, logged", async () => {
+  const t = makeT();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  for (const failure of [
+    new Error("Jwks failed: 500"),
+    joseError("ERR_JWKS_TIMEOUT", "request timed out"),
+  ]) {
+    logged.mockClear();
+    verify.mockRejectedValue(failure);
+    expect(await authenticate(t, "Bearer jwt")).toEqual({
+      status: 503,
+      wwwAuthenticate: null,
+      body: { error: "temporarily_unavailable" },
+    });
+    expect(logged).toHaveBeenCalledWith("MCP access token verification failed:", failure);
+  }
 });
 
 test("no consent → 401", async () => {
