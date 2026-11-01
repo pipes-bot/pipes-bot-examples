@@ -64,6 +64,11 @@ describe("applyEvent", () => {
     const scheduled = await event(t, id, { kind: "customer_text", stale: false });
     const jobId = scheduled.pendingReplyJobId!;
     expect(jobId).toBeDefined();
+    // AI off: the responder runs but drops the turn, so it leaves the state alone.
+    await t.run(async (ctx) => {
+      const number = (await ctx.db.query("numbers").first())!;
+      await ctx.db.patch(number._id, { aiEnabled: false });
+    });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     const job = await t.run((ctx) => ctx.db.system.get(jobId));
     expect(job?.state.kind).toBe("success");
