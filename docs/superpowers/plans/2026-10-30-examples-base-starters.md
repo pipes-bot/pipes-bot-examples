@@ -215,7 +215,7 @@ export function replaceBlock(readme: string, block: string): string;
 - [ ] **Step 3: Implement** using `yaml`'s `parse`.
 - [ ] **Step 4: Write `README.md`.** Sections:
   1. Title `pipes.bot examples` and a one-paragraph intro with a link to https://docs.pipes.bot.
-  2. "Using an example": `npx degit pipes-bot/examples/<folder> my-app`.
+  2. "Using an example": `npx degit pipes-bot/pipes-bot-examples/<folder> my-app`.
   3. "Examples", with the markers and an empty block between them.
   4. "Testing without a phone": `pnpm mock-api`, then the starter with `PIPES_API_BASE_URL=http://localhost:4010`, then `pnpm simulate byon-v2/message-text --secret ...`.
   5. "Adding an example": required frontmatter fields, required README sections, `pnpm readme`.
@@ -336,7 +336,7 @@ type SmokeCase = {
 
 - [ ] **Step 1: Run** `pnpm smoke with-nextjs-route-handler`. Expected: FAIL.
 - [ ] **Step 2: Implement the route and the minimal app shell.**
-- [ ] **Step 3: `.env.example`, README.** Use `stack: [nextjs, typescript, vercel]`, same features. Under "Deploy", add a Vercel deploy button with `repository-url=https://github.com/pipes-bot/examples/tree/main/with-nextjs-route-handler` and `env=PIPES_API_KEY,PIPES_WEBHOOK_SECRET`. Note that the dedup `Set` is per serverless instance.
+- [ ] **Step 3: `.env.example`, README.** Use `stack: [nextjs, typescript, vercel]`, same features. Under "Deploy", add a Vercel deploy button with `repository-url=https://github.com/pipes-bot/pipes-bot-examples/tree/main/with-nextjs-route-handler` and `env=PIPES_API_KEY,PIPES_WEBHOOK_SECRET`. Note that the dedup `Set` is per serverless instance.
 - [ ] **Step 4: Run** `pnpm install && pnpm smoke with-nextjs-route-handler` (Expected: all PASS) and `pnpm typecheck && pnpm build` in the folder (Expected: success).
 - [ ] **Step 5: Run** `pnpm readme && pnpm readme:check`. Expected: exit 0.
 - [ ] **Step 6: Commit** `Add Next.js route handler webhook starter`.

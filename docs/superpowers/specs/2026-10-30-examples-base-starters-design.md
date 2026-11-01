@@ -19,7 +19,7 @@ Esta spec cobre só o **subprojeto 0**: a estrutura do repo, as ferramentas da r
 | Decisão | Escolha |
 | --- | --- |
 | Perfil do repo | Misto: starters enxutos + 2–3 apps completos de produção |
-| Independência | Cada exemplo é autocontido e copiável com `npx degit pipes-bot/examples/<pasta>`. Sem workspace na raiz, sem pacotes compartilhados entre exemplos |
+| Independência | Cada exemplo é autocontido e copiável com `npx degit pipes-bot/pipes-bot-examples/<pasta>`. Sem workspace na raiz, sem pacotes compartilhados entre exemplos |
 | Idioma | Inglês em código, READMEs e mensagens de log (alinhado com docs.pipes.bot) |
 | Modos dos starters | Sandbox (`pk_`) **e** BYON API v2 (`ak_`), escolhido pelo prefixo da chave |
 | BYON legacy | Fora do escopo dos starters. O README aponta para os docs |
@@ -230,7 +230,7 @@ Matriz de casos:
 ## README raiz
 
 - O que é o pipes.bot, em um parágrafo, com link para docs.pipes.bot.
-- Como usar um exemplo: `npx degit pipes-bot/examples/<folder> my-app`.
+- Como usar um exemplo: `npx degit pipes-bot/pipes-bot-examples/<folder> my-app`.
 - Tabela gerada (Starters, Apps).
 - Testar sem celular: `mock-api` + `simulate`.
 - Como contribuir com um novo exemplo: frontmatter, seções obrigatórias, `pnpm readme`.
