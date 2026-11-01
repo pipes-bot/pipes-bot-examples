@@ -7,7 +7,7 @@ Working examples for the [pipes.bot](https://docs.pipes.bot) WhatsApp API: webho
 Copy a folder into a new directory with [degit](https://github.com/Rich-Harris/degit):
 
 ```bash
-npx degit pipes-bot/examples/<folder> my-app
+npx degit pipes-bot/pipes-bot-examples/<folder> my-app
 cd my-app
 ```
 

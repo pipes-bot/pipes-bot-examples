@@ -41,7 +41,7 @@ cloudflared tunnel --url http://localhost:3000
 ngrok http 3000
 ```
 
-No phone or account yet? Use the mock API and webhook simulator from the [root README](https://github.com/pipes-bot/examples#testing-without-a-phone).
+No phone or account yet? Use the mock API and webhook simulator from the [root README](https://github.com/pipes-bot/pipes-bot-examples#testing-without-a-phone).
 
 | Variable | Description |
 | --- | --- |
@@ -76,4 +76,4 @@ Log lines: `received <kind> <id>`, `replied <id>`, `skipped <reason> <id>`, `dup
 - **Sandbox limits.** The sandbox number is shared, there are no templates and you can only reply inside the 24-hour customer window.
 - **Move to BYON v2.** Use an `ak_` API key, the `whsec_` signing secret of your App, the v2 envelope and the `app/send` endpoint. This starter already handles both.
 - **Persist deduplication.** The in-memory `Set` is capped at 1000 entries, is per serverless instance and resets on cold starts. Store processed ids in your database.
-- **More.** Full apps live in the [examples repo](https://github.com/pipes-bot/examples). See [docs.pipes.bot](https://docs.pipes.bot) for webhooks, sending messages and BYON setup.
+- **More.** Full apps live in the [examples repo](https://github.com/pipes-bot/pipes-bot-examples). See [docs.pipes.bot](https://docs.pipes.bot) for webhooks, sending messages and BYON setup.
