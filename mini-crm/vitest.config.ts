@@ -8,6 +8,8 @@ export default defineConfig({
           name: "convex",
           environment: "edge-runtime",
           include: ["convex/**/*.test.ts"],
+          // Convex provides CONVEX_SITE_URL in every deployment; Better Auth needs both at init.
+          env: { CONVEX_SITE_URL: "https://crm.test.convex.site", SITE_URL: "http://localhost:5173" },
         },
       },
       {

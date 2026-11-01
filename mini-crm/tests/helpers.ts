@@ -1,10 +1,26 @@
 import { convexTest } from "convex-test";
+import { api, components } from "../convex/_generated/api";
+import betterAuthSchema from "../convex/betterAuth/schema";
 import schema from "../convex/schema";
 
-const modules = import.meta.glob("../convex/**/*.ts");
+// The local Better Auth component is registered separately, so keep its files
+// (and its own _generated/) out of the app's module map.
+const modules = import.meta.glob(["../convex/**/*.ts", "!../convex/betterAuth/**"]);
+const betterAuthModules = import.meta.glob("../convex/betterAuth/**/*.ts");
 
 export function makeT() {
-  return convexTest(schema, modules);
+  const t = convexTest(schema, modules);
+  t.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+  return t;
+}
+
+export type TestConvex = ReturnType<typeof makeT>;
+
+/** Signs in as `ownerId` (Convex identity `subject`) and creates their workspace. */
+export async function seedUser(t: TestConvex, ownerId = "user_1") {
+  const asUser = t.withIdentity({ subject: ownerId });
+  const workspaceId = await asUser.mutation(api.workspaces.ensureWorkspace, {});
+  return { workspaceId, asUser };
 }
 
 export const TEST_WEBHOOK_SECRET = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
@@ -50,4 +66,36 @@ export async function signedRequest(
       "webhook-signature": `v1,${bytesToBase64(new Uint8Array(mac))}`,
     },
   };
+}
+
+/**
+ * Stores what a finished OAuth authorization leaves behind in the Better Auth
+ * component: the (dynamically registered) client and the user's consent.
+ */
+export async function seedConsent(
+  t: TestConvex,
+  grant: { userId: string; clientId: string; clientName?: string; scopes?: string[] },
+) {
+  await t.run(async (ctx) => {
+    await ctx.runMutation(components.betterAuth.adapter.create, {
+      input: {
+        model: "oauthClient",
+        data: {
+          clientId: grant.clientId,
+          name: grant.clientName,
+          redirectUris: ["http://127.0.0.1:9/callback"],
+        },
+      },
+    });
+    await ctx.runMutation(components.betterAuth.adapter.create, {
+      input: {
+        model: "oauthConsent",
+        data: {
+          clientId: grant.clientId,
+          userId: grant.userId,
+          scopes: grant.scopes ?? ["crm:read", "crm:write"],
+        },
+      },
+    });
+  });
 }

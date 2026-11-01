@@ -3,16 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { ActionCtx } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
-
-// Moves to mcp/auth.ts in Task 4.
-export type Principal = {
-  userId: string;
-  workspaceId: Id<"workspaces">;
-  scopes: string[];
-  clientId: string;
-  clientName: string;
-};
+import type { Principal } from "./auth";
 
 export function buildServer(_ctx: ActionCtx, _principal: Principal): McpServer {
   const server = new McpServer({ name: "mini-crm", version: "1.0.0" });

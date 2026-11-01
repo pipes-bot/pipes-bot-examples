@@ -1,23 +1,26 @@
 import { httpAction } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
-import { handleMcp, type Principal } from "./server";
-
-// Temporary principal for the spike; Task 4 replaces this with real auth and drops MCP_SPIKE.
-const SPIKE_PRINCIPAL: Principal = {
-  userId: "spike",
-  workspaceId: "spike" as Id<"workspaces">,
-  scopes: ["crm:read", "crm:write"],
-  clientId: "spike",
-  clientName: "spike",
-};
+import { MCP_SCOPES } from "../auth";
+import { authenticateMcpRequest } from "./auth";
+import { handleMcp } from "./server";
 
 export const mcpEndpoint = httpAction(async (ctx, request) => {
-  if (process.env.MCP_SPIKE !== "1") {
-    return new Response("Unauthorized", { status: 401 });
-  }
-  return handleMcp(ctx, request, SPIKE_PRINCIPAL);
+  const principal = await authenticateMcpRequest(ctx, request);
+  if (principal instanceof Response) return principal;
+  return handleMcp(ctx, request, principal);
 });
 
 export const mcpMethodNotAllowed = httpAction(async () => {
   return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+});
+
+// RFC 9728 metadata, served at both well-known paths. MCP clients find it through the
+// WWW-Authenticate header of a 401 from /mcp.
+export const protectedResourceMetadata = httpAction(async () => {
+  const site = process.env.CONVEX_SITE_URL!;
+  return Response.json({
+    resource: `${site}/mcp`,
+    authorization_servers: [site],
+    scopes_supported: MCP_SCOPES,
+    bearer_methods_supported: ["header"],
+  });
 });
