@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as crm from "../crm.js";
+import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
 import type * as lib_crm from "../lib/crm.js";
@@ -21,6 +22,7 @@ import type * as mcp_auth from "../mcp/auth.js";
 import type * as mcp_data from "../mcp/data.js";
 import type * as mcp_http from "../mcp/http.js";
 import type * as mcp_server from "../mcp/server.js";
+import type * as numbers from "../numbers.js";
 import type * as webhook from "../webhook.js";
 import type * as workspaces from "../workspaces.js";
 
@@ -34,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authz: typeof authz;
   crm: typeof crm;
+  crons: typeof crons;
   http: typeof http;
   ingest: typeof ingest;
   "lib/crm": typeof lib_crm;
@@ -44,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   "mcp/data": typeof mcp_data;
   "mcp/http": typeof mcp_http;
   "mcp/server": typeof mcp_server;
+  numbers: typeof numbers;
   webhook: typeof webhook;
   workspaces: typeof workspaces;
 }>;
