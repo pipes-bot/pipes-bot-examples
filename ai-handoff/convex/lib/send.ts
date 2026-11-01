@@ -22,15 +22,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/** Maps a Meta error code (from a send response or a `failed` status) to a SendError code. */
+export function metaSendError(code: number): SendError {
+  return code === META_WINDOW_CLOSED ? "window_closed" : `meta_${code}`;
+}
+
 /** Maps a failed pipes.bot send response to a SendError code. */
 export function parseSendFailure(status: number, body: unknown): SendError {
   const code = isRecord(body) ? body.code : undefined;
   if (code === "SERVICE_WINDOW_EXPIRED") return "window_closed";
   if (code === "RATE_LIMITED" || status === 429) return "rate_limited";
   const metaCode = isRecord(body) && isRecord(body.error) ? body.error.code : undefined;
-  if (typeof metaCode === "number") {
-    return metaCode === META_WINDOW_CLOSED ? "window_closed" : `meta_${metaCode}`;
-  }
+  if (typeof metaCode === "number") return metaSendError(metaCode);
   if (typeof code === "string" && code.length > 0) return code.toLowerCase();
   return `http_${status}`;
 }

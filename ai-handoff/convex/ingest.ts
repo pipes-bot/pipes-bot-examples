@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { applyEvent } from "./handoff";
-import { previewOf, STALE_MESSAGE_MS, type Source } from "./lib/handoff";
+import { previewOf, STALE_MESSAGE_MS, type HandoffEvent, type Source } from "./lib/handoff";
 import {
   contactName,
   contentOf,
@@ -11,7 +11,7 @@ import {
   senderOf,
   waTimestampMs,
 } from "./lib/payload";
-import { sendErrorMessage } from "./lib/send";
+import { metaSendError, sendErrorMessage } from "./lib/send";
 
 type EventState = Doc<"events">["state"];
 type Outcome = "duplicate" | EventState;
@@ -175,11 +175,24 @@ async function projectMessage(
 
   // Re-read: the state machine must see the `lastFrom` written above.
   const fresh = (await ctx.db.get(conversation._id))!;
-  const event =
-    content.type === "text"
-      ? { kind: "customer_text" as const, stale: clock.now - sentAt > STALE_MESSAGE_MS }
-      : { kind: "customer_media" as const };
-  await applyEvent(ctx, fresh, event, clock.now);
+  const event = customerEvent(content, clock.now - sentAt > STALE_MESSAGE_MS);
+  if (event) await applyEvent(ctx, fresh, event, clock.now);
+}
+
+/** Types that carry no request: stored, but they never hand the conversation over. */
+const NO_EVENT_TYPES = new Set(["reaction", "sticker"]);
+const REPLY_TYPES = new Set(["button", "interactive"]);
+
+/**
+ * Text, and button or list replies that carry their title, are something the AI can answer.
+ * Reactions and stickers change nothing. Anything else is media for a person.
+ */
+function customerEvent(content: { type: string; text?: string }, stale: boolean): HandoffEvent | null {
+  if (NO_EVENT_TYPES.has(content.type)) return null;
+  if (content.type === "text" || (REPLY_TYPES.has(content.type) && content.text !== undefined)) {
+    return { kind: "customer_text", stale };
+  }
+  return { kind: "customer_media" };
 }
 
 /** Returns false when the message is unknown (e.g. the status raced the send that stores its wamid). */
@@ -195,13 +208,14 @@ async function projectStatus(ctx: MutationCtx, status: any, now: number): Promis
     const code = status.errors?.[0]?.code;
     const error = code !== undefined && code !== null ? `meta_${code}` : undefined;
     await ctx.db.patch(message._id, { status: "failed", ...(error ? { error } : {}) });
+    const sendError = typeof code === "number" ? metaSendError(code) : (error ?? "delivery_failed");
     if (message.source === "ai") {
       const conversation = await ctx.db.get(message.conversationId);
       if (conversation?.mode === "ai") {
         await applyEvent(
           ctx,
           conversation,
-          { kind: "ai_error", error: sendErrorMessage(error ?? "delivery_failed") },
+          { kind: "ai_error", error: sendErrorMessage(sendError) },
           now,
         );
       }
@@ -303,11 +317,13 @@ async function onboardNumber(
     return "parked";
   }
 
-  // A re-onboarding into another workspace just repoints the number (keeping its AI switch):
-  // the old workspace keeps its conversations and new messages start fresh ones in the new one.
+  // A re-onboarding into another workspace just repoints the number, with the AI off until the
+  // new owner turns it on: the old workspace keeps its conversations and new messages start
+  // fresh ones in the new one. A reconnect to the same workspace keeps the AI switch.
   const existing = await numberByPoolId(ctx, poolNumberId);
   const fields = {
     workspaceId: workspace._id,
+    ...(existing && existing.workspaceId !== workspace._id ? { aiEnabled: false } : {}),
     phoneNumber: str(data?.phoneNumber) ?? existing?.phoneNumber ?? "",
     displayName: str(data?.displayName) ?? existing?.displayName ?? "",
   };

@@ -9,7 +9,7 @@ import statusFailed from "../tests/fixtures/status-failed.json";
 import systemUserChangedNumber from "../tests/fixtures/system-user-changed-number.json";
 import { makeT } from "../tests/helpers";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { sendErrorMessage } from "./lib/send";
 
 const NOW = 1_800_000_000_000;
@@ -82,6 +82,23 @@ const all = <K extends "events" | "numbers" | "conversations" | "messages">(t: T
   t.run((ctx) => ctx.db.query(table).collect());
 
 const jobs = (t: T) => t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+
+/** An AI reply already sent in `conversation`, as the responder will store it. */
+const insertAiMessage = (t: T, conversation: Doc<"conversations">, wamid: string) =>
+  t.run((ctx) =>
+    ctx.db.insert("messages", {
+      workspaceId: conversation.workspaceId,
+      conversationId: conversation._id,
+      numberId: conversation.numberId,
+      wamid,
+      direction: "out",
+      source: "ai",
+      type: "text",
+      text: "It also comes in blue.",
+      status: "sent",
+      sentAt: Date.now(),
+    }),
+  );
 
 const only = async (t: T) => {
   const rows = await all(t, "conversations");
@@ -339,26 +356,53 @@ describe("ingest", () => {
     expect(await all(t, "messages")).toHaveLength(0);
   });
 
+  it("reaction is stored without a handoff", async () => {
+    const t = makeT();
+    await seedNumber(t);
+    await ingest(t, envelope(messageText));
+    const pending = (await only(t)).pendingReplyJobId;
+
+    const reaction = envelope(messageText);
+    const msg = reaction.whatsapp.messages[0];
+    msg.id = "wamid.reaction";
+    msg.type = "reaction";
+    delete msg.text;
+    msg.reaction = { message_id: messageText.whatsapp.messages[0].id, emoji: "\u{1F44D}" };
+    expect(await ingest(t, reaction)).toBe("processed");
+
+    const conversation = await only(t);
+    expect(conversation).toMatchObject({ mode: "ai", aiTurn: 1, pendingReplyJobId: pending, lastFrom: "customer" });
+    expect(conversation.handoffReason).toBeUndefined();
+    expect((await jobs(t)).find((j) => j._id === pending)?.state.kind).toBe("pending");
+    const stored = (await all(t, "messages")).find((m) => m.wamid === "wamid.reaction");
+    expect(stored).toMatchObject({ type: "reaction", source: "customer", direction: "in" });
+  });
+
+  it("button reply counts as text", async () => {
+    const t = makeT();
+    await seedNumber(t);
+
+    const button = envelope(messageText);
+    const msg = button.whatsapp.messages[0];
+    msg.type = "button";
+    delete msg.text;
+    msg.button = { text: "Yes, blue", payload: "blue" };
+    await ingest(t, button);
+
+    const conversation = await only(t);
+    expect(conversation).toMatchObject({ mode: "ai", aiTurn: 1, lastPreview: "Yes, blue" });
+    expect(conversation.pendingReplyJobId).toBeDefined();
+    const [job] = await jobs(t);
+    expect(job).toMatchObject({ name: "responder:respond", state: { kind: "pending" } });
+  });
+
   it("failed status of an AI message hands to a human", async () => {
     const t = makeT();
     await seedNumber(t);
     await ingest(t, envelope(messageText));
     const conversation = await only(t);
     const wamid = statusFailed.whatsapp.statuses[0].id;
-    await t.run((ctx) =>
-      ctx.db.insert("messages", {
-        workspaceId: conversation.workspaceId,
-        conversationId: conversation._id,
-        numberId: conversation.numberId,
-        wamid,
-        direction: "out",
-        source: "ai",
-        type: "text",
-        text: "It also comes in blue.",
-        status: "sent",
-        sentAt: NOW,
-      }),
-    );
+    await insertAiMessage(t, conversation, wamid);
 
     expect(await ingest(t, envelope(statusFailed))).toBe("processed");
 
@@ -368,6 +412,47 @@ describe("ingest", () => {
       aiTurn: 2,
       lastError: sendErrorMessage("meta_131049"),
     });
+    const message = (await all(t, "messages")).find((m) => m.wamid === wamid);
+    expect(message).toMatchObject({ status: "failed", error: "meta_131049" });
+  });
+
+  it("failed status with the window-closed code explains it", async () => {
+    const t = makeT();
+    await seedNumber(t);
+    await ingest(t, envelope(messageText));
+    const conversation = await only(t);
+    const wamid = statusFailed.whatsapp.statuses[0].id;
+    await insertAiMessage(t, conversation, wamid);
+
+    const failed = envelope(statusFailed);
+    failed.whatsapp.statuses[0].errors[0].code = 131047;
+    await ingest(t, failed);
+
+    expect(await only(t)).toMatchObject({
+      mode: "waiting_human",
+      handoffReason: "ai_error",
+      lastError: sendErrorMessage("window_closed"),
+    });
+    const message = (await all(t, "messages")).find((m) => m.wamid === wamid);
+    expect(message).toMatchObject({ status: "failed", error: "meta_131047" });
+  });
+
+  it("failed status of an AI message while staff has it changes nothing", async () => {
+    const t = makeT();
+    await seedNumber(t);
+    await ingest(t, envelope(messageText));
+    const conversation = await only(t);
+    const wamid = statusFailed.whatsapp.statuses[0].id;
+    await insertAiMessage(t, conversation, wamid);
+    await ingest(t, echoToCustomer());
+    const before = await only(t);
+    expect(before).toMatchObject({ mode: "human", handoffReason: "phone_reply" });
+
+    await ingest(t, envelope(statusFailed));
+
+    const after = await only(t);
+    expect(after).toEqual(before);
+    expect(after.lastError).toBeUndefined();
     const message = (await all(t, "messages")).find((m) => m.wamid === wamid);
     expect(message).toMatchObject({ status: "failed", error: "meta_131049" });
   });
@@ -425,7 +510,7 @@ describe("ingest", () => {
     expect(warn).toHaveBeenCalledWith("unassigned number pn_x");
   });
 
-  it("reonboarding moves the number and keeps the AI switch", async () => {
+  it("reonboarding into another workspace moves the number and turns the AI off", async () => {
     const t = makeT();
     const a = await seedNumber(t, { ownerId: "user_a" });
     const b = await seedWorkspace(t, "user_b");
@@ -438,13 +523,27 @@ describe("ingest", () => {
 
     const numbers = await all(t, "numbers");
     expect(numbers).toHaveLength(1);
-    expect(numbers[0]).toMatchObject({ workspaceId: b, aiEnabled: true });
+    expect(numbers[0]).toMatchObject({ workspaceId: b, aiEnabled: false });
     const conversations = await all(t, "conversations");
     const inWorkspace = (id: Id<"workspaces">) => conversations.filter((c) => c.workspaceId === id);
     expect(inWorkspace(a)).toHaveLength(1);
     expect(inWorkspace(b)).toHaveLength(1);
     expect(inWorkspace(a)[0].aiTurn).toBe(1);
     expect(inWorkspace(b)[0].aiTurn).toBe(1);
+    // Only the first message, sent while the AI was on in workspace a, got a reply.
+    expect(inWorkspace(b)[0].pendingReplyJobId).toBeUndefined();
+    expect((await jobs(t)).filter((j) => j.state.kind === "pending")).toHaveLength(1);
+  });
+
+  it("reconnecting to the same workspace keeps the AI switch", async () => {
+    const t = makeT();
+    const workspaceId = await seedNumber(t);
+
+    expect(await ingest(t, onboarded(POOL, workspaceId))).toBe("processed");
+
+    const numbers = await all(t, "numbers");
+    expect(numbers).toHaveLength(1);
+    expect(numbers[0]).toMatchObject({ workspaceId, aiEnabled: true });
   });
 
   it("duplicate webhook id is skipped", async () => {
