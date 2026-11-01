@@ -32,7 +32,7 @@ export function stateOf(c: Doc<"conversations">): HandoffState {
 }
 
 /** Cancels a scheduled reply unless it already ran (or was canceled). */
-async function cancelJob(ctx: MutationCtx, jobId: Id<"_scheduled_functions">) {
+export async function cancelJob(ctx: MutationCtx, jobId: Id<"_scheduled_functions">) {
   const job = await ctx.db.system.get(jobId);
   if (job && (job.state.kind === "pending" || job.state.kind === "inProgress")) {
     await ctx.scheduler.cancel(jobId);
