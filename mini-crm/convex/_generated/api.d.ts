@@ -10,7 +10,9 @@
 
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
+import type * as contacts from "../contacts.js";
 import type * as crm from "../crm.js";
+import type * as crmRead from "../crmRead.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
@@ -35,7 +37,9 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authz: typeof authz;
+  contacts: typeof contacts;
   crm: typeof crm;
+  crmRead: typeof crmRead;
   crons: typeof crons;
   http: typeof http;
   ingest: typeof ingest;
