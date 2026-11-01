@@ -12,7 +12,7 @@ import { requireContact, requireDraft, requireWorkspaceId } from "./authz";
 import { recordActivity } from "./crm";
 import { windowState } from "./lib/crm";
 import type { SendError, SendResult } from "./lib/send";
-import { deliverMessage, sendableText, startSend } from "./sending";
+import { deliverMessage, sendableText, sendRefusal, startSend } from "./sending";
 
 const ACTIVITY_DETAIL_LENGTH = 80;
 const NOT_PENDING = "Draft is no longer pending";
@@ -32,7 +32,9 @@ export async function createDraft(
   if (contact.workspaceId !== workspaceId) throw new ConvexError("Not found");
   const text = sendableText(args.text);
   if (text === null) return { error: "invalid_text" };
-  if (!windowState(contact, now).open) return { error: "window_closed" };
+  // The same refusals as a send, so a draft that could never be approved is not created.
+  const refusal = await sendRefusal(ctx, workspaceId, contact, now);
+  if (refusal !== null) return { error: refusal };
   const draftId = await ctx.db.insert("drafts", {
     workspaceId,
     contactId: contact._id,

@@ -7,7 +7,7 @@ import {
   seedUser,
   type TestConvex,
 } from "../tests/helpers";
-import { api, internal } from "./_generated/api";
+import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 
 const SEND_URL = "https://api.pipes.bot/v1/messages/app/send";
@@ -172,6 +172,20 @@ describe("send", () => {
     expect(await messagesOf(t, contactId)).toHaveLength(0);
   });
 
+  it("limited number still sends", async () => {
+    const { t, asUser, contactId } = await seed(
+      {},
+      { health: { state: "unhealthy", canSendMessage: "LIMITED", checkedAt: 0, detail: "LIMITED" } },
+    );
+    const fetchMock = stubFetch(ok());
+
+    const result = await asUser.action(api.sending.send, { contactId, text: "Hi" });
+
+    expect(result.status).toBe("sent");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await messagesOf(t, contactId)).toMatchObject([{ status: "sent" }]);
+  });
+
   it("number of another workspace is unavailable", async () => {
     const t = makeT();
     const { workspaceId, asUser } = await seedUser(t, "user_a");
@@ -326,15 +340,9 @@ describe("send", () => {
 
 describe("retry", () => {
   it("retry creates a new message and links it", async () => {
-    const { t, workspaceId, asUser, contactId } = await seed();
+    const { t, asUser, contactId } = await seed();
     const fetchMock = stubFetch(() => jsonResponse({ error: "boom" }, 500), ok("wamid.R"));
-    const failed = await t.action(internal.sending.sendMessage, {
-      workspaceId,
-      contactId,
-      text: "Hi there",
-      source: "mcp",
-      clientName: "Claude",
-    });
+    const failed = await asUser.action(api.sending.send, { contactId, text: "Hi there" });
     expect(failed).toMatchObject({ status: "failed", error: "http_500" });
 
     const result = await asUser.action(api.sending.retry, { messageId: failed.messageId! });
@@ -348,14 +356,43 @@ describe("retry", () => {
       status: "sent",
       wamid: "wamid.R",
       text: "Hi there",
-      source: "mcp",
-      clientName: "Claude",
+      source: "app",
       attempt: 1,
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const sent = await activitiesOf(t, contactId, "message_sent");
     expect(sent).toHaveLength(1);
-    expect(sent[0].actor).toBe("Claude");
+    expect(sent[0].actor).toBe("you");
+  });
+
+  it("retry of an MCP client's message keeps the client as author", async () => {
+    const { t, workspaceId, asUser, numberId, contactId } = await seed();
+    // What a failed direct-mode send_message leaves behind.
+    const failedId = await t.run((ctx) =>
+      ctx.db.insert("messages", {
+        workspaceId,
+        contactId,
+        numberId,
+        direction: "out",
+        source: "mcp",
+        clientName: "Claude",
+        type: "text",
+        text: "Hi there",
+        status: "failed",
+        error: "http_500",
+        attempt: 1,
+        sentAt: Date.now(),
+      }),
+    );
+    stubFetch(ok("wamid.R"));
+
+    const result = await asUser.action(api.sending.retry, { messageId: failedId });
+
+    expect(result.status).toBe("sent");
+    const retried = await t.run((ctx) => ctx.db.get(result.messageId!));
+    expect(retried).toMatchObject({ source: "mcp", clientName: "Claude", text: "Hi there" });
+    const sent = await activitiesOf(t, contactId, "message_sent");
+    expect(sent.map((a) => a.actor)).toEqual(["Claude"]);
   });
 
   it("retry twice is refused", async () => {

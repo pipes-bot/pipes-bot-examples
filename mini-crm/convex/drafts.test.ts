@@ -103,6 +103,51 @@ describe("createDraft", () => {
     expect(await activitiesOf(t, contactId, "draft_created")).toHaveLength(0);
   });
 
+  it("create refuses what a send would refuse, writing nothing", async () => {
+    const blocked = await seed();
+    await blocked.t.run(async (ctx) => {
+      const contact = (await ctx.db.get(blocked.contactId))!;
+      await ctx.db.patch(contact.lastNumberId, {
+        health: { state: "unhealthy", canSendMessage: "BLOCKED", checkedAt: 0 },
+      });
+    });
+    expect(await draftOf(blocked.t, blocked.workspaceId, blocked.contactId, "Hi")).toEqual({
+      error: "number_blocked",
+    });
+
+    const noRecipient = await seed({ waId: undefined, userId: undefined });
+    expect(await draftOf(noRecipient.t, noRecipient.workspaceId, noRecipient.contactId, "Hi")).toEqual({
+      error: "no_recipient",
+    });
+
+    // The number moved to another workspace through a re-onboarding.
+    const moved = await seed();
+    const { workspaceId: otherWorkspaceId } = await seedUser(moved.t, "user_b");
+    await moved.t.run(async (ctx) => {
+      const contact = (await ctx.db.get(moved.contactId))!;
+      await ctx.db.patch(contact.lastNumberId, { workspaceId: otherWorkspaceId });
+    });
+    expect(await draftOf(moved.t, moved.workspaceId, moved.contactId, "Hi")).toEqual({
+      error: "number_unavailable",
+    });
+
+    for (const { t, contactId } of [blocked, noRecipient, moved]) {
+      expect(await t.run((ctx) => ctx.db.query("drafts").collect())).toHaveLength(0);
+      expect(await activitiesOf(t, contactId, "draft_created")).toHaveLength(0);
+    }
+  });
+
+  it("a limited number can still get a draft", async () => {
+    const { t, workspaceId, contactId } = await seed();
+    await t.run(async (ctx) => {
+      const contact = (await ctx.db.get(contactId))!;
+      await ctx.db.patch(contact.lastNumberId, {
+        health: { state: "unhealthy", canSendMessage: "LIMITED", checkedAt: 0 },
+      });
+    });
+    expect(await draftOf(t, workspaceId, contactId, "Hi")).toHaveProperty("draftId");
+  });
+
   it("create refuses invalid text", async () => {
     const { t, workspaceId, contactId } = await seed();
 

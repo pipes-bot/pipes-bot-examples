@@ -48,11 +48,26 @@ export function sendableText(raw: string): string | null {
   }
 }
 
-function isBlocked(number: Doc<"numbers">): boolean {
-  return number.health?.state === "unhealthy" || number.health?.canSendMessage === "BLOCKED";
-}
-
 type Prepared = { ok: true } | { ok: false; error: SendError };
+
+/**
+ * Why a text to this contact would be refused right now, or null. Shared by sends and drafts so
+ * both refuse with the same codes. Only `BLOCKED` stops a send: a `LIMITED` number can still send
+ * (its badge on the Numbers page still shows it as unhealthy).
+ */
+export async function sendRefusal(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  contact: Doc<"contacts">,
+  now: number,
+): Promise<SendError | null> {
+  if ((contact.waId ?? contact.userId) === undefined) return "no_recipient";
+  const number = await ctx.db.get(contact.lastNumberId);
+  if (!number || number.workspaceId !== workspaceId) return "number_unavailable";
+  if (number.health?.canSendMessage === "BLOCKED") return "number_blocked";
+  if (!windowState(contact, now).open) return "window_closed";
+  return null;
+}
 
 export const prepareSend = internalQuery({
   args: { workspaceId: v.id("workspaces"), contactId: v.id("contacts"), text: v.string() },
@@ -60,14 +75,8 @@ export const prepareSend = internalQuery({
     if (sendableText(text) === null) return { ok: false, error: "invalid_text" };
     const contact = await ctx.db.get(contactId);
     if (!contact || contact.workspaceId !== workspaceId) throw new ConvexError("Not found");
-    if ((contact.waId ?? contact.userId) === undefined) return { ok: false, error: "no_recipient" };
-    const number = await ctx.db.get(contact.lastNumberId);
-    if (!number || number.workspaceId !== workspaceId) {
-      return { ok: false, error: "number_unavailable" };
-    }
-    if (isBlocked(number)) return { ok: false, error: "number_blocked" };
-    if (!windowState(contact, Date.now()).open) return { ok: false, error: "window_closed" };
-    return { ok: true };
+    const refusal = await sendRefusal(ctx, workspaceId, contact, Date.now());
+    return refusal === null ? { ok: true } : { ok: false, error: refusal };
   },
 });
 
@@ -350,18 +359,6 @@ export async function runSend(ctx: ActionCtx, args: SendArgs): Promise<SendResul
   if ("error" in started) return { status: "failed", error: started.error };
   return await deliverMessage(ctx, started.messageId);
 }
-
-export const sendMessage = internalAction({
-  args: {
-    workspaceId: v.id("workspaces"),
-    contactId: v.id("contacts"),
-    text: v.string(),
-    source: outgoingSourceValidator,
-    clientName: v.optional(v.string()),
-    draftId: v.optional(v.id("drafts")),
-  },
-  handler: async (ctx, args): Promise<SendResult> => await runSend(ctx, args),
-});
 
 export const send = action({
   args: { contactId: v.id("contacts"), text: v.string() },
