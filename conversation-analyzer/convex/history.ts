@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -27,6 +27,12 @@ export const ANALYZE_BATCH = 100;
 
 /** Gap between two queued analyses, to stay clear of the OpenRouter rate limit. */
 export const ANALYZE_SPACING_MS = 3000;
+
+/** A contact's build imports only its newest staged rows, so one mutation stays within the Convex limits. */
+export const HISTORY_CONTACT_CAP = 3000;
+
+/** Older rows of a contact past the cap that one `history.skipOlder` run clears. */
+export const SKIP_BATCH = 1000;
 
 /** `history.importStatus` stops counting unanalyzed conversations here. */
 export const UNANALYZED_COUNT_CAP = 1000;
@@ -242,12 +248,15 @@ export const stage = internalMutation({
 const turnOf = (source: Source): "customer" | "business" =>
   source === "customer" ? "customer" : "business";
 
-/** The contact's conversations (open and closed) on this number, in its current workspace. */
+/**
+ * The contact's conversations (open and closed), split into the ones in the
+ * number's current workspace and the ones a previous workspace kept.
+ */
 async function contactConversations(
   ctx: MutationCtx,
   number: Doc<"numbers">,
   contactId: Id<"contacts">,
-): Promise<Doc<"conversations">[]> {
+): Promise<{ current: Doc<"conversations">[]; elsewhere: Doc<"conversations">[] }> {
   const all: Doc<"conversations">[] = [];
   for (const status of ["open", "closed"] as const) {
     all.push(
@@ -257,19 +266,23 @@ async function contactConversations(
         .collect()),
     );
   }
-  return all.filter((c) => c.numberId === number._id && c.workspaceId === number.workspaceId);
+  const inCurrent = (c: Doc<"conversations">) =>
+    c.numberId === number._id && c.workspaceId === number.workspaceId;
+  return { current: all.filter(inCurrent), elsewhere: all.filter((c) => !inCurrent(c)) };
 }
 
 /**
  * Undoes the previous build of a contact: deletes its imported conversations
  * with their messages, and the imported messages folded into live
- * conversations. Returns the live conversations as they are afterwards.
+ * conversations. Returns the live conversations as they are afterwards and
+ * the wamids of the messages they still hold.
  */
 async function undoBuild(
   ctx: MutationCtx,
   conversations: Doc<"conversations">[],
-): Promise<Doc<"conversations">[]> {
+): Promise<{ live: Doc<"conversations">[]; liveWamids: Set<string> }> {
   const live: Doc<"conversations">[] = [];
+  const liveWamids = new Set<string>();
   for (const conversation of conversations) {
     const messages = await ctx.db
       .query("messages")
@@ -284,10 +297,12 @@ async function undoBuild(
     const kept = messages.filter((m) => !m.imported);
     // A live conversation always holds a live message; one without any is left as is.
     if (folded.length === 0 || kept.length === 0) {
+      for (const message of messages) liveWamids.add(message.wamid);
       live.push(conversation);
       continue;
     }
     for (const message of folded) await ctx.db.delete(message._id);
+    for (const message of kept) liveWamids.add(message.wamid);
     const patch: Partial<Doc<"conversations">> = {
       openedAt: kept[0].sentAt,
       initiatedBy: turnOf(kept[0].source),
@@ -297,7 +312,7 @@ async function undoBuild(
     await ctx.db.patch(conversation._id, patch);
     live.push({ ...conversation, ...patch });
   }
-  return live;
+  return { live, liveWamids };
 }
 
 async function insertImportedMessages(
@@ -320,34 +335,51 @@ async function insertImportedMessages(
 }
 
 /**
- * Rebuilds one contact's imported conversations from its staged history and
- * clears its pending rows. Returns how many imported conversations it created;
- * a segment folded into a live conversation is not counted.
+ * Rebuilds one contact's imported conversations from its newest
+ * HISTORY_CONTACT_CAP staged rows and clears their pending flag. `created` is
+ * how many imported conversations it made; a segment folded into a live
+ * conversation is not counted. `olderFrom` is set when the contact has older
+ * rows: the `sentAt` of the oldest built row, at and below which
+ * `history.skipOlder` clears the rest.
  */
-export async function buildContact(
+async function rebuildContact(
   ctx: MutationCtx,
   number: Doc<"numbers">,
   contactId: Id<"contacts">,
-): Promise<number> {
+): Promise<{ created: number; olderFrom?: number }> {
   const workspace = await ctx.db.get(number.workspaceId);
   const inactivityMs = (workspace?.inactivityMinutes ?? DEFAULT_INACTIVITY_MINUTES) * 60_000;
 
-  const live = await undoBuild(ctx, await contactConversations(ctx, number, contactId));
+  const { current, elsewhere } = await contactConversations(ctx, number, contactId);
+  const { live, liveWamids } = await undoBuild(ctx, current);
 
-  const staged = await ctx.db
+  const newest = await ctx.db
     .query("historyMessages")
     .withIndex("by_number_contact_sent_at", (q) =>
       q.eq("numberId", number._id).eq("contactId", contactId),
     )
-    .collect();
-  // After the undo, any wamid still in `messages` came from live traffic.
+    .order("desc")
+    .take(HISTORY_CONTACT_CAP + 1);
+  const staged = newest.slice(0, HISTORY_CONTACT_CAP);
+  const olderFrom =
+    newest.length > HISTORY_CONTACT_CAP ? staged[staged.length - 1].sentAt : undefined;
+
+  // After the undo, the current workspace holds no imported message of this
+  // contact, so the wamids it still has came from live traffic. The messages
+  // of conversations a previous workspace kept are not loaded, so when the
+  // contact has any, each remaining row is looked up by wamid; the cap keeps
+  // that to HISTORY_CONTACT_CAP lookups.
   const fresh: Doc<"historyMessages">[] = [];
   for (const row of staged) {
-    const existing = await ctx.db
-      .query("messages")
-      .withIndex("by_wamid", (q) => q.eq("wamid", row.wamid))
-      .first();
-    if (!existing) fresh.push(row);
+    if (liveWamids.has(row.wamid)) continue;
+    if (elsewhere.length > 0) {
+      const existing = await ctx.db
+        .query("messages")
+        .withIndex("by_wamid", (q) => q.eq("wamid", row.wamid))
+        .first();
+      if (existing) continue;
+    }
+    fresh.push(row);
   }
   const segments = segmentMessages(fresh, inactivityMs);
 
@@ -391,13 +423,29 @@ export async function buildContact(
   for (const row of staged) {
     if (row.pending) await ctx.db.patch(row._id, { pending: undefined });
   }
-  return segments.length;
+  return { created: segments.length, olderFrom };
 }
 
 /**
- * Builds one contact with pending rows per run and chains the next run. The
- * run that finds nothing pending recounts the imported conversations, clears
- * the debounced job and marks the import done once progress reached 100.
+ * Rebuilds one contact's imported conversations from its newest
+ * HISTORY_CONTACT_CAP staged rows and clears their pending flag. Returns how
+ * many imported conversations it created. Older rows are left as they are;
+ * `history.build` clears them through `history.skipOlder`.
+ */
+export async function buildContact(
+  ctx: MutationCtx,
+  number: Doc<"numbers">,
+  contactId: Id<"contacts">,
+): Promise<number> {
+  return (await rebuildContact(ctx, number, contactId)).created;
+}
+
+/**
+ * Builds one contact with pending rows per run and chains the next run; a
+ * contact with more than HISTORY_CONTACT_CAP rows goes through
+ * `history.skipOlder` first. The run that finds nothing pending recounts the
+ * imported conversations, clears the debounced job and marks the import done
+ * once progress reached 100.
  */
 export const build = internalMutation({
   args: { numberId: v.id("numbers") },
@@ -411,8 +459,17 @@ export const build = internalMutation({
       .withIndex("by_number_pending", (q) => q.eq("numberId", numberId).eq("pending", true))
       .first();
     if (pending) {
-      await buildContact(ctx, number, pending.contactId);
-      await ctx.scheduler.runAfter(0, internal.history.build, { numberId });
+      const { olderFrom } = await rebuildContact(ctx, number, pending.contactId);
+      if (olderFrom === undefined) {
+        await ctx.scheduler.runAfter(0, internal.history.build, { numberId });
+      } else {
+        await ctx.scheduler.runAfter(0, internal.history.skipOlder, {
+          numberId,
+          contactId: pending.contactId,
+          olderFrom,
+          cursor: null,
+        });
+      }
       return null;
     }
 
@@ -434,12 +491,57 @@ export const build = internalMutation({
   },
 });
 
+/**
+ * Clears the pending flag of a contact's rows older than its newest
+ * HISTORY_CONTACT_CAP, SKIP_BATCH rows per run, without building them; the
+ * rows stay staged. The last run hands back to `history.build`, so the other
+ * contacts and the final bookkeeping still run.
+ */
+export const skipOlder = internalMutation({
+  args: {
+    numberId: v.id("numbers"),
+    contactId: v.id("contacts"),
+    olderFrom: v.number(),
+    cursor: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, { numberId, contactId, olderFrom, cursor }): Promise<null> => {
+    // The range starts at the oldest built row's sentAt, so it can also hold
+    // built rows with that same sentAt; their pending flag is already cleared.
+    const page = await ctx.db
+      .query("historyMessages")
+      .withIndex("by_number_contact_sent_at", (q) =>
+        q.eq("numberId", numberId).eq("contactId", contactId).lte("sentAt", olderFrom),
+      )
+      .order("desc")
+      .paginate({ numItems: SKIP_BATCH, cursor });
+    for (const row of page.page) {
+      if (row.pending) await ctx.db.patch(row._id, { pending: undefined });
+    }
+    if (page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.history.build, { numberId });
+    } else {
+      await ctx.scheduler.runAfter(0, internal.history.skipOlder, {
+        numberId,
+        contactId,
+        olderFrom,
+        cursor: page.continueCursor,
+      });
+    }
+    return null;
+  },
+});
+
 /** Queues the analysis of the newest unanalyzed imported conversations, one every few seconds. */
 export const analyzeImported = mutation({
   args: { numberId: v.id("numbers") },
   returns: v.object({ requested: v.number(), remaining: v.number() }),
   handler: async (ctx, { numberId }): Promise<{ requested: number; remaining: number }> => {
     const { workspace } = await requireNumber(ctx, numberId);
+    // Without a key every queued analysis ends as skipped and leaves the bulk path.
+    if (!process.env.OPENROUTER_API_KEY) {
+      throw new ConvexError("Set OPENROUTER_API_KEY to analyze conversations");
+    }
     // The scan is bounded: only the first UNANALYZED_COUNT_CAP matches are read, so
     // `remaining` is capped by that window and the batch is the newest of it.
     const window = await unanalyzedImported(ctx, workspace._id, numberId).take(

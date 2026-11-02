@@ -7,6 +7,7 @@ import numberOnboarded from "../tests/fixtures/number-onboarded.json";
 import { makeT } from "../tests/helpers";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { HISTORY_CONTACT_CAP } from "./history";
 import { flattenHistory, summarizeHistory } from "./lib/history";
 import { DEFAULT_METHODOLOGY } from "./lib/methodology";
 import { computeMetrics } from "./lib/metrics";
@@ -641,6 +642,34 @@ describe("build", () => {
     expect((await messagesOf(t, live)).map((m) => m.wamid)).toEqual(["w_live"]);
   });
 
+  it("a wamid that came live into the workspace the number moved from is not imported", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    const contactId = await seedContact(t, numberId);
+    const oldWorkspace = await t.run((ctx) =>
+      ctx.db.insert("workspaces", {
+        ownerId: "owner_old",
+        name: "Old",
+        inactivityMinutes: 120,
+        methodology: [],
+      }),
+    );
+    const base = NOW - 5 * DAY;
+    const old = await seedLive(t, { workspaceId: oldWorkspace, numberId, contactId }, "closed", [
+      { wamid: "w_live", sentAt: base + 2 * MIN, source: "phone" },
+    ]);
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [at("w1", base), at("w_live", base + 2 * MIN, "phone")],
+    });
+    await buildAll(t, numberId);
+
+    const built = (await imported(t)).filter((c) => c._id !== old);
+    expect(built).toHaveLength(1);
+    expect((await messagesOf(t, built[0]._id)).map((m) => m.wamid)).toEqual(["w1"]);
+    expect((await messagesOf(t, old)).map((m) => m.wamid)).toEqual(["w_live"]);
+  });
+
   it("folds the last segment into the open live conversation", async () => {
     const t = makeT();
     const { workspaceId, numberId } = await seedNumber(t);
@@ -702,6 +731,40 @@ describe("build", () => {
       expect((await messagesOf(t, built[0]._id)).map((m) => m.wamid)).toEqual(["h1", "h2"]);
       expect((await messagesOf(t, live)).map((m) => m.wamid)).toEqual(["live1"]);
       expect((await t.run((ctx) => ctx.db.get(live)))!.openedAt).toBe(liveAt);
+    }
+  });
+
+  it("folds at exactly the inactivity window and not one millisecond past it", async () => {
+    const window = 120 * MIN; // the seeded workspace's inactivityMinutes
+    for (const [gap, folds] of [
+      [window, true],
+      [window + 1, false],
+    ] as const) {
+      const t = makeT();
+      const { workspaceId, numberId } = await seedNumber(t);
+      const contactId = await seedContact(t, numberId);
+      const openedAt = NOW - HOUR;
+      const live = await seedLive(t, { workspaceId, numberId, contactId }, "open", [
+        { wamid: "live1", sentAt: openedAt, source: "customer" },
+      ]);
+      await t.mutation(internal.history.stage, {
+        numberId,
+        rows: [at("h1", openedAt - gap - 5 * MIN), at("h2", openedAt - gap, "phone")],
+      });
+      await buildAll(t, numberId);
+
+      const liveWamids = (await messagesOf(t, live)).map((m) => m.wamid);
+      const built = await imported(t);
+      if (folds) {
+        expect(liveWamids).toEqual(["h1", "h2", "live1"]);
+        expect(built).toHaveLength(0);
+        expect((await t.run((ctx) => ctx.db.get(live)))!.openedAt).toBe(openedAt - gap - 5 * MIN);
+      } else {
+        expect(liveWamids).toEqual(["live1"]);
+        expect(built).toHaveLength(1);
+        expect((await messagesOf(t, built[0]._id)).map((m) => m.wamid)).toEqual(["h1", "h2"]);
+        expect((await t.run((ctx) => ctx.db.get(live)))!.openedAt).toBe(openedAt);
+      }
     }
   });
 
@@ -926,6 +989,48 @@ describe("build", () => {
     expect((await getNumber(t, numberId))!.historyImport!.conversations).toBe(1);
   });
 
+  it(
+    "imports only the newest messages of a very large contact and still builds the others",
+    { timeout: 120_000 },
+    async () => {
+      const t = makeT({ transactionLimits: true });
+      const { numberId } = await seedNumber(t, { ...requested, state: "importing", progress: 100 });
+      // Past the per-transaction limit of 4,096 index ranges with one lookup per row.
+      const total = 4200;
+      const base = NOW - 30 * DAY;
+      const big = Array.from({ length: total }, (_, i) =>
+        at(`big${i}`, base + i * MIN, i % 2 ? "phone" : "customer"),
+      );
+      for (let i = 0; i < total; i += 500) {
+        await t.mutation(internal.history.stage, { numberId, rows: big.slice(i, i + 500) });
+      }
+      // Staged after the large contact, so it is built after it.
+      await t.mutation(internal.history.stage, {
+        numberId,
+        rows: [{ ...at("other1", base), threadId: "16505550000" }],
+      });
+
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      expect(await pendingRow(t, numberId)).toBeNull();
+      // Older rows stay staged.
+      expect(await rows(t)).toHaveLength(total + 1);
+      const built = await imported(t);
+      expect(built).toHaveLength(2);
+      const large = built.find((c) => c.openedAt === base + (total - HISTORY_CONTACT_CAP) * MIN)!;
+      const wamids = (await messagesOf(t, large._id)).map((m) => m.wamid);
+      expect(wamids).toHaveLength(HISTORY_CONTACT_CAP);
+      expect(wamids[0]).toBe(`big${total - HISTORY_CONTACT_CAP}`);
+      expect(wamids[wamids.length - 1]).toBe(`big${total - 1}`);
+      const other = built.find((c) => c._id !== large._id)!;
+      expect((await messagesOf(t, other._id)).map((m) => m.wamid)).toEqual(["other1"]);
+
+      const history = (await getNumber(t, numberId))!.historyImport!;
+      expect(history).toMatchObject({ state: "done", progress: 100, conversations: 2 });
+      expect(history.buildJobId).toBeUndefined();
+    },
+  );
+
   it("dashboard.conversations marks imported rows", async () => {
     const t = makeT();
     const { workspaceId, numberId } = await seedNumber(t);
@@ -948,8 +1053,19 @@ describe("build", () => {
   });
 });
 
+/** A fake key: these tests never run the scheduled analysis. */
+function withOpenRouterKey() {
+  beforeEach(() => {
+    process.env.OPENROUTER_API_KEY = "sk-or-test-fake";
+  });
+  afterEach(() => {
+    delete process.env.OPENROUTER_API_KEY;
+  });
+}
+
 describe("analyzeImported", () => {
   const OWNER = "owner_1";
+  withOpenRouterKey();
 
   async function seedImported(
     t: T,
@@ -1078,10 +1194,35 @@ describe("analyzeImported", () => {
       t.withIdentity({ subject: "owner_2" }).mutation(api.history.analyzeImported, { numberId }),
     ).rejects.toThrow("Not found");
   });
+
+  it("refuses without OPENROUTER_API_KEY and queues nothing", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    const t = makeT();
+    const ids = await seedNumber(t);
+    const todo = await seedImported(t, ids, NOW - 1000);
+
+    await expect(
+      t
+        .withIdentity({ subject: OWNER })
+        .mutation(api.history.analyzeImported, { numberId: ids.numberId }),
+    ).rejects.toThrow("Set OPENROUTER_API_KEY to analyze conversations");
+    expect((await t.run((ctx) => ctx.db.get(todo)))!.analysis).toBeUndefined();
+    expect(await analysisJobs(t)).toHaveLength(0);
+  });
+
+  it("checks authorization before the key", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    await expect(
+      t.withIdentity({ subject: "owner_2" }).mutation(api.history.analyzeImported, { numberId }),
+    ).rejects.toThrow("Workspace not found");
+  });
 });
 
 describe("importStatus", () => {
   const OWNER = "owner_1";
+  withOpenRouterKey();
   const status = (t: T, numberId: Id<"numbers">) =>
     t.withIdentity({ subject: OWNER }).query(api.history.importStatus, { numberId });
 

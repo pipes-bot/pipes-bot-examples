@@ -4,8 +4,9 @@ import schema from "../convex/schema";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 
-export function makeT() {
-  const t = convexTest(schema, modules);
+/** `transactionLimits: true` enforces the Convex per-transaction limits, like production. */
+export function makeT(options: { transactionLimits?: boolean } = {}) {
+  const t = convexTest({ schema, modules, transactionLimits: options.transactionLimits ?? false });
   betterAuthTest.register(t, "betterAuth");
   return t;
 }
