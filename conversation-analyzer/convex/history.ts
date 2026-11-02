@@ -1,9 +1,16 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalAction, internalMutation, type MutationCtx } from "./_generated/server";
+import {
+  internalAction,
+  internalMutation,
+  mutation,
+  query,
+  type MutationCtx,
+} from "./_generated/server";
+import { requireNumber } from "./authz";
 import { resolveContact } from "./contactLookup";
-import { DEFAULT_INACTIVITY_MINUTES } from "./conversations";
+import { DEFAULT_INACTIVITY_MINUTES, requestAnalysis } from "./conversations";
 import { flattenHistory, segmentMessages, type HistorySummary } from "./lib/history";
 import { computeMetrics, type Source } from "./lib/metrics";
 
@@ -12,6 +19,15 @@ export const STAGE_BATCH = 500;
 
 /** The build waits this long after the last staged chunk, since chunks arrive out of order. */
 export const BUILD_DEBOUNCE_MS = 600_000;
+
+/** Conversations `history.analyzeImported` queues per call. */
+export const ANALYZE_BATCH = 100;
+
+/** Gap between two queued analyses, to stay clear of the OpenRouter rate limit. */
+export const ANALYZE_SPACING_MS = 3000;
+
+/** `history.importStatus` stops counting unanalyzed conversations here. */
+export const UNANALYZED_COUNT_CAP = 1000;
 
 export const historySummaryValidator = v.object({
   declined: v.boolean(),
@@ -413,5 +429,75 @@ export const build = internalMutation({
       },
     });
     return null;
+  },
+});
+
+/** Queues the analysis of the newest unanalyzed imported conversations, one every few seconds. */
+export const analyzeImported = mutation({
+  args: { numberId: v.id("numbers") },
+  returns: v.object({ requested: v.number(), remaining: v.number() }),
+  handler: async (ctx, { numberId }): Promise<{ requested: number; remaining: number }> => {
+    const { workspace } = await requireNumber(ctx, numberId);
+    const unanalyzed = await ctx.db
+      .query("conversations")
+      .withIndex("by_number_imported", (q) => q.eq("numberId", numberId).eq("imported", true))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("workspaceId"), workspace._id),
+          q.eq(q.field("status"), "closed"),
+          q.eq(q.field("analysis"), undefined),
+        ),
+      )
+      .collect();
+    unanalyzed.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
+
+    const batch = unanalyzed.slice(0, ANALYZE_BATCH);
+    for (const [i, conversation] of batch.entries()) {
+      await requestAnalysis(ctx, conversation._id, workspace.methodology, i * ANALYZE_SPACING_MS);
+    }
+    return { requested: batch.length, remaining: unanalyzed.length - batch.length };
+  },
+});
+
+/** The numbers page's view of an import; null when nothing was requested. */
+export const importStatus = query({
+  args: { numberId: v.id("numbers") },
+  handler: async (ctx, { numberId }) => {
+    const { workspace, number } = await requireNumber(ctx, numberId);
+    const { historyImport, contactsImport } = number;
+    if (!historyImport && !contactsImport) return null;
+
+    const pending = await ctx.db
+      .query("historyMessages")
+      .withIndex("by_number_pending", (q) => q.eq("numberId", numberId).eq("pending", true))
+      .first();
+
+    let importedConversations = 0;
+    let unanalyzed = 0;
+    const imported = ctx.db
+      .query("conversations")
+      .withIndex("by_number_imported", (q) => q.eq("numberId", numberId).eq("imported", true))
+      .filter((q) => q.eq(q.field("workspaceId"), workspace._id));
+    for await (const conversation of imported) {
+      importedConversations++;
+      if (!conversation.analysis && unanalyzed < UNANALYZED_COUNT_CAP) unanalyzed++;
+    }
+
+    let bookContacts = 0;
+    const contacts = ctx.db
+      .query("contacts")
+      .withIndex("by_number", (q) => q.eq("numberId", numberId));
+    for await (const contact of contacts) {
+      if (contact.bookName) bookContacts++;
+    }
+
+    return {
+      historyImport,
+      contactsImport,
+      building: !!historyImport?.buildJobId || !!pending,
+      importedConversations,
+      unanalyzed,
+      bookContacts,
+    };
   },
 });

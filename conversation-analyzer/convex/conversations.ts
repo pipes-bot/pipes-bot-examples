@@ -97,12 +97,13 @@ export async function requestAnalysis(
   ctx: MutationCtx,
   conversationId: Id<"conversations">,
   methodology: Step[],
+  delayMs = 0,
 ): Promise<void> {
   const requestedAt = Date.now();
   await ctx.db.patch(conversationId, {
     analysis: { state: "pending", methodology, requestedAt },
   });
-  await ctx.scheduler.runAfter(0, internal.analysis.analyzeConversation, {
+  await ctx.scheduler.runAfter(delayMs, internal.analysis.analyzeConversation, {
     conversationId,
     requestedAt,
   });

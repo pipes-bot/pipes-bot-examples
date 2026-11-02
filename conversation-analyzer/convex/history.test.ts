@@ -947,3 +947,225 @@ describe("build", () => {
     expect(list.find((c) => c._id !== live)!.imported).toBe(true);
   });
 });
+
+describe("analyzeImported", () => {
+  const OWNER = "owner_1";
+
+  async function seedImported(
+    t: T,
+    ids: { workspaceId: Id<"workspaces">; numberId: Id<"numbers"> },
+    closedAt: number,
+    extra: Partial<Doc<"conversations">> = {},
+  ) {
+    return t.run(async (ctx) => {
+      const contactId = await ctx.db.insert("contacts", {
+        numberId: ids.numberId,
+        waId: `wa${closedAt}`,
+      });
+      return ctx.db.insert("conversations", {
+        ...ids,
+        contactId,
+        imported: true,
+        status: "closed",
+        initiatedBy: "customer",
+        openedAt: closedAt - 1000,
+        lastActivityAt: closedAt,
+        closedAt,
+        lastTurn: "customer",
+        ...extra,
+      });
+    });
+  }
+
+  const analysisJobs = async (t: T) =>
+    (await jobs(t))
+      .filter((j) => j.name.endsWith("analyzeConversation"))
+      .sort((a, b) => a.scheduledTime - b.scheduledTime);
+
+  it("analyzes only unanalyzed imported conversations", async () => {
+    const t = makeT();
+    const ids = await seedNumber(t);
+    const todo = await seedImported(t, ids, NOW - 3000);
+    const done = await seedImported(t, ids, NOW - 2000, {
+      analysis: { state: "done", methodology: [], requestedAt: 1 },
+    });
+    const live = await seedImported(t, ids, NOW - 1000, { imported: undefined });
+
+    const result = await t
+      .withIdentity({ subject: OWNER })
+      .mutation(api.history.analyzeImported, { numberId: ids.numberId });
+
+    expect(result).toEqual({ requested: 1, remaining: 0 });
+    const get = (id: Id<"conversations">) => t.run((ctx) => ctx.db.get(id));
+    expect((await get(todo))!.analysis?.state).toBe("pending");
+    expect((await get(done))!.analysis?.state).toBe("done");
+    expect((await get(live))!.analysis).toBeUndefined();
+  });
+
+  it("caps at 100 and reports remaining", async () => {
+    const t = makeT();
+    const ids = await seedNumber(t);
+    for (let i = 0; i < 105; i++) await seedImported(t, ids, NOW - 1_000_000 + i);
+
+    const result = await t
+      .withIdentity({ subject: OWNER })
+      .mutation(api.history.analyzeImported, { numberId: ids.numberId });
+
+    expect(result).toEqual({ requested: 100, remaining: 5 });
+    expect(await analysisJobs(t)).toHaveLength(100);
+  });
+
+  it("spaces the analysis jobs, newest first, with the workspace methodology", async () => {
+    const t = makeT();
+    const ids = await seedNumber(t);
+    const oldest = await seedImported(t, ids, NOW - 3000);
+    const newest = await seedImported(t, ids, NOW - 1000);
+    const middle = await seedImported(t, ids, NOW - 2000);
+
+    await t
+      .withIdentity({ subject: OWNER })
+      .mutation(api.history.analyzeImported, { numberId: ids.numberId });
+
+    const scheduled = await analysisJobs(t);
+    // convex-test adds a millisecond or so to the scheduled time.
+    const [first] = scheduled.map((j) => j.scheduledTime);
+    expect(first - NOW).toBeGreaterThanOrEqual(0);
+    expect(first - NOW).toBeLessThan(1_000);
+    expect(scheduled.map((j) => j.scheduledTime - first)).toEqual([0, 3000, 6000]);
+    expect(scheduled.map((j) => (j.args[0] as any).conversationId)).toEqual([
+      newest,
+      middle,
+      oldest,
+    ]);
+    const conversation = await t.run((ctx) => ctx.db.get(newest));
+    expect(conversation!.analysis!.methodology).toEqual(DEFAULT_METHODOLOGY);
+  });
+
+  it("ignores conversations from another workspace", async () => {
+    const t = makeT();
+    const ids = await seedNumber(t);
+    const other = await t.run((ctx) =>
+      ctx.db.insert("workspaces", {
+        ownerId: "owner_old",
+        name: "Old",
+        inactivityMinutes: 120,
+        methodology: DEFAULT_METHODOLOGY,
+      }),
+    );
+    await seedImported(t, { workspaceId: other, numberId: ids.numberId }, NOW - 1000);
+    const mine = await seedImported(t, ids, NOW - 2000);
+
+    const result = await t
+      .withIdentity({ subject: OWNER })
+      .mutation(api.history.analyzeImported, { numberId: ids.numberId });
+
+    expect(result).toEqual({ requested: 1, remaining: 0 });
+    expect((await analysisJobs(t)).map((j) => (j.args[0] as any).conversationId)).toEqual([mine]);
+  });
+
+  it("another workspace gets Not found", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    await t.run((ctx) =>
+      ctx.db.insert("workspaces", {
+        ownerId: "owner_2",
+        name: "Other",
+        inactivityMinutes: 120,
+        methodology: DEFAULT_METHODOLOGY,
+      }),
+    );
+    await expect(
+      t.withIdentity({ subject: "owner_2" }).mutation(api.history.analyzeImported, { numberId }),
+    ).rejects.toThrow("Not found");
+  });
+});
+
+describe("importStatus", () => {
+  const OWNER = "owner_1";
+  const status = (t: T, numberId: Id<"numbers">) =>
+    t.withIdentity({ subject: OWNER }).query(api.history.importStatus, { numberId });
+
+  it("is null when nothing was requested", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t, null);
+    expect(await status(t, numberId)).toBeNull();
+  });
+
+  it("another workspace gets Not found", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    await t.run((ctx) =>
+      ctx.db.insert("workspaces", {
+        ownerId: "owner_2",
+        name: "Other",
+        inactivityMinutes: 120,
+        methodology: DEFAULT_METHODOLOGY,
+      }),
+    );
+    await expect(
+      t.withIdentity({ subject: "owner_2" }).query(api.history.importStatus, { numberId }),
+    ).rejects.toThrow("Not found");
+  });
+
+  it("reports counts and building", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t, { ...requested, state: "importing", progress: 100 });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("contacts", { numberId, waId: "1", bookName: "Ana" });
+      await ctx.db.insert("contacts", { numberId, waId: "2" });
+    });
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [
+        { ...row("a1", NOW - 5 * 86_400_000), threadId: "1" },
+        { ...row("a2", NOW - 5 * 86_400_000 + 1000), threadId: "1" },
+        { ...row("b1", NOW - 2 * 86_400_000), threadId: "2" },
+      ],
+    });
+
+    const during = await status(t, numberId);
+    expect(during!.building).toBe(true);
+    expect(during!.importedConversations).toBe(0);
+    expect(during!.bookContacts).toBe(1);
+
+    for (let i = 0; i < 10; i++) await t.mutation(internal.history.build, { numberId });
+
+    const after = await status(t, numberId);
+    expect(after).toMatchObject({
+      building: false,
+      importedConversations: 2,
+      unanalyzed: 2,
+      bookContacts: 1,
+    });
+    expect(after!.historyImport!.state).toBe("done");
+    expect(after!.contactsImport).toBeUndefined();
+
+    await t.withIdentity({ subject: OWNER }).mutation(api.history.analyzeImported, { numberId });
+    expect((await status(t, numberId))!.unanalyzed).toBe(0);
+  });
+
+  it("counts unanalyzed up to the cap", async () => {
+    const t = makeT();
+    const { workspaceId, numberId } = await seedNumber(t);
+    await t.run(async (ctx) => {
+      const contactId = await ctx.db.insert("contacts", { numberId, waId: "1" });
+      for (let i = 0; i < 1005; i++) {
+        await ctx.db.insert("conversations", {
+          workspaceId,
+          numberId,
+          contactId,
+          imported: true,
+          status: "closed",
+          initiatedBy: "customer",
+          openedAt: i,
+          lastActivityAt: i,
+          closedAt: i,
+          lastTurn: "customer",
+        });
+      }
+    });
+    const result = await status(t, numberId);
+    expect(result!.unanalyzed).toBe(1000);
+    expect(result!.importedConversations).toBe(1005);
+  });
+});
