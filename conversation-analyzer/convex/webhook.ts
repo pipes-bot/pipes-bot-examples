@@ -1,5 +1,6 @@
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import { summarizeHistory } from "./lib/history";
 import { verifyStandardWebhook } from "./lib/signature";
 
 const reply = (body: string, status: number) =>
@@ -39,6 +40,24 @@ export const pipesWebhook = httpAction(async (ctx, request) => {
   }
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
     return reply("body is not a JSON object", 400);
+  }
+
+  if ((payload as { field?: unknown }).field === "history") {
+    // Chunks can hold thousands of messages: keep the raw body in file storage
+    // and the event row to a summary. `receive` owns the blob from here on.
+    const summary = summarizeHistory(payload);
+    const storageId =
+      summary.messageCount > 0
+        ? await ctx.storage.store(new Blob([body], { type: "application/json" }))
+        : undefined;
+    const poolNumberId = (payload as { pipes?: { poolNumberId?: unknown } }).pipes?.poolNumberId;
+    await ctx.runMutation(internal.history.receive, {
+      webhookId,
+      poolNumberId: typeof poolNumberId === "string" && poolNumberId ? poolNumberId : undefined,
+      summary,
+      storageId,
+    });
+    return reply("ok", 200);
   }
 
   await ctx.runMutation(internal.ingest.ingest, { webhookId, payload });

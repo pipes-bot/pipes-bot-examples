@@ -17,6 +17,7 @@ import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as demo from "../demo.js";
+import type * as history from "../history.js";
 import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
 import type * as lib_evaluation from "../lib/evaluation.js";
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   dashboard: typeof dashboard;
   demo: typeof demo;
+  history: typeof history;
   http: typeof http;
   ingest: typeof ingest;
   "lib/evaluation": typeof lib_evaluation;

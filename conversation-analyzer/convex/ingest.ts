@@ -4,6 +4,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { contactByUserId, resolveContact } from "./contactLookup";
 import { applyStateSync } from "./contactsSync";
 import { closeConversation, recordMessage } from "./conversations";
+import { applyHistoryEvent } from "./history";
 import {
   contactName,
   contentOf,
@@ -210,12 +211,19 @@ async function onboardNumber(
 
   // Replay what arrived before the number had a workspace, in arrival order.
   // Parked `number.onboarded` events carry no envelope and stay parked.
+  // Parked history events are applied from their stored summary.
   const parked = await ctx.db
     .query("events")
     .withIndex("by_pool_number_state", (q) => q.eq("poolNumberId", poolNumberId).eq("state", "parked"))
     .collect();
   parked.sort((a, b) => a.receivedAt - b.receivedAt);
   for (const event of parked) {
+    if (event.payload?.field === "history") {
+      const { summary } = event.payload;
+      const state = await applyHistoryEvent(ctx, number, summary, event.storageId, event.receivedAt);
+      await ctx.db.patch(event._id, { state });
+      continue;
+    }
     if (!ENVELOPE_FIELDS.has(event.payload?.field)) continue;
     await projectEnvelope(ctx, number, event.payload, event.receivedAt);
     await ctx.db.patch(event._id, { state: "processed" });

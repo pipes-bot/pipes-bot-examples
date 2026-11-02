@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import historyChunk from "../tests/fixtures/history-chunk.json";
 import testWebhook from "../tests/fixtures/test-webhook.json";
 import { makeT, signedRequest, TEST_WEBHOOK_SECRET } from "../tests/helpers";
 
@@ -86,5 +87,50 @@ describe("POST /webhooks/pipes", () => {
     const rows = await events(t);
     expect(rows).toHaveLength(1);
     expect(rows[0].webhookId).toBe("msg_same");
+  });
+
+  it("sends history to storage, not ingest", async () => {
+    const t = makeT();
+    const res = await post(t, await signedRequest(historyChunk));
+    expect(res.status).toBe(200);
+    const rows = await events(t);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe("history");
+    expect(rows[0].storageId).toBeDefined();
+    expect(rows[0].payload.whatsapp).toBeUndefined();
+    expect(rows[0].payload.summary).toMatchObject({ messageCount: 2, progress: 40 });
+    const stored = await t.run(async (ctx) => (await ctx.storage.get(rows[0].storageId!))?.text());
+    expect(JSON.parse(stored!).field).toBe("history");
+  });
+
+  it("accepts a history chunk over 1 MiB", async () => {
+    const t = makeT();
+    const chunk = structuredClone(historyChunk) as any;
+    chunk.whatsapp.history[0].threads[0].messages = Array.from({ length: 6000 }, (_, i) => ({
+      from: "16505551234",
+      id: `wamid.BIG${i}`,
+      timestamp: String(1_760_400_000 + i),
+      type: "text",
+      text: { body: "hello there, this is a message with some filler text to add weight" },
+      history_context: { status: "READ" },
+    }));
+    const req = await signedRequest(chunk);
+    expect(req.body.length).toBeGreaterThan(1024 * 1024);
+    const res = await post(t, req);
+    expect(res.status).toBe(200);
+    const rows = await events(t);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].storageId).toBeDefined();
+    expect(rows[0].payload.summary.messageCount).toBe(6000);
+  });
+
+  it("does not store a blob for a history event without messages", async () => {
+    const t = makeT();
+    const declined = { ...structuredClone(historyChunk), id: "evt_declined" } as any;
+    declined.whatsapp.history = [{ errors: [{ code: 2593109 }] }];
+    expect((await post(t, await signedRequest(declined))).status).toBe(200);
+    const rows = await events(t);
+    expect(rows[0].kind).toBe("history");
+    expect(rows[0].storageId).toBeUndefined();
   });
 });
