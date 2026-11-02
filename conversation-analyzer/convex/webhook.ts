@@ -3,6 +3,9 @@ import { httpAction } from "./_generated/server";
 import { summarizeHistory } from "./lib/history";
 import { verifyStandardWebhook } from "./lib/signature";
 
+/** Address-book items per ingested event; a larger `smb_app_state_sync` envelope is split. */
+export const STATE_SYNC_BATCH = 500;
+
 const reply = (body: string, status: number) =>
   new Response(body, { status, headers: { "content-type": "text/plain" } });
 
@@ -57,6 +60,26 @@ export const pipesWebhook = httpAction(async (ctx, request) => {
       summary,
       storageId,
     });
+    return reply("ok", 200);
+  }
+
+  const items = (payload as { whatsapp?: { state_sync?: unknown } }).whatsapp?.state_sync;
+  if (
+    (payload as { field?: unknown }).field === "smb_app_state_sync" &&
+    Array.isArray(items) &&
+    items.length > STATE_SYNC_BATCH
+  ) {
+    // A full address book can hold thousands of contacts: one event per slice
+    // keeps each mutation and each stored payload within the Convex limits.
+    // Every slice is deduped on its own id, so a retry only redoes what failed.
+    const envelope = payload as { whatsapp: Record<string, unknown> };
+    for (let i = 0; i * STATE_SYNC_BATCH < items.length; i++) {
+      const state_sync = items.slice(i * STATE_SYNC_BATCH, (i + 1) * STATE_SYNC_BATCH);
+      await ctx.runMutation(internal.ingest.ingest, {
+        webhookId: `${webhookId}#${i}`,
+        payload: { ...envelope, whatsapp: { ...envelope.whatsapp, state_sync } },
+      });
+    }
     return reply("ok", 200);
   }
 
