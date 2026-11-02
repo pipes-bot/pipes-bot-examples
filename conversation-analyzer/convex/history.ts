@@ -7,7 +7,9 @@ import {
   mutation,
   query,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
+import { contactsImportValidator, historyImportValidator } from "./schema";
 import { requireNumber } from "./authz";
 import { resolveContact } from "./contactLookup";
 import { DEFAULT_INACTIVITY_MINUTES, requestAnalysis } from "./conversations";
@@ -438,30 +440,53 @@ export const analyzeImported = mutation({
   returns: v.object({ requested: v.number(), remaining: v.number() }),
   handler: async (ctx, { numberId }): Promise<{ requested: number; remaining: number }> => {
     const { workspace } = await requireNumber(ctx, numberId);
-    const unanalyzed = await ctx.db
-      .query("conversations")
-      .withIndex("by_number_imported", (q) => q.eq("numberId", numberId).eq("imported", true))
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("workspaceId"), workspace._id),
-          q.eq(q.field("status"), "closed"),
-          q.eq(q.field("analysis"), undefined),
-        ),
-      )
-      .collect();
-    unanalyzed.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
+    // The scan is bounded: only the first UNANALYZED_COUNT_CAP matches are read, so
+    // `remaining` is capped by that window and the batch is the newest of it.
+    const window = await unanalyzedImported(ctx, workspace._id, numberId).take(
+      UNANALYZED_COUNT_CAP,
+    );
+    window.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
 
-    const batch = unanalyzed.slice(0, ANALYZE_BATCH);
+    const batch = window.slice(0, ANALYZE_BATCH);
     for (const [i, conversation] of batch.entries()) {
       await requestAnalysis(ctx, conversation._id, workspace.methodology, i * ANALYZE_SPACING_MS);
     }
-    return { requested: batch.length, remaining: unanalyzed.length - batch.length };
+    return { requested: batch.length, remaining: window.length - batch.length };
   },
 });
+
+/** Imported, closed conversations of the workspace that were never analyzed. */
+function unanalyzedImported(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  numberId: Id<"numbers">,
+) {
+  return ctx.db
+    .query("conversations")
+    .withIndex("by_number_imported", (q) => q.eq("numberId", numberId).eq("imported", true))
+    .filter((q) =>
+      q.and(
+        q.eq(q.field("workspaceId"), workspaceId),
+        q.eq(q.field("status"), "closed"),
+        q.eq(q.field("analysis"), undefined),
+      ),
+    );
+}
 
 /** The numbers page's view of an import; null when nothing was requested. */
 export const importStatus = query({
   args: { numberId: v.id("numbers") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      historyImport: v.optional(historyImportValidator),
+      contactsImport: v.optional(contactsImportValidator),
+      building: v.boolean(),
+      importedConversations: v.number(),
+      unanalyzed: v.number(),
+      bookContacts: v.number(),
+    }),
+  ),
   handler: async (ctx, { numberId }) => {
     const { workspace, number } = await requireNumber(ctx, numberId);
     const { historyImport, contactsImport } = number;
@@ -472,32 +497,24 @@ export const importStatus = query({
       .withIndex("by_number_pending", (q) => q.eq("numberId", numberId).eq("pending", true))
       .first();
 
-    let importedConversations = 0;
-    let unanalyzed = 0;
-    const imported = ctx.db
-      .query("conversations")
-      .withIndex("by_number_imported", (q) => q.eq("numberId", numberId).eq("imported", true))
-      .filter((q) => q.eq(q.field("workspaceId"), workspace._id));
-    for await (const conversation of imported) {
-      importedConversations++;
-      if (!conversation.analysis && unanalyzed < UNANALYZED_COUNT_CAP) unanalyzed++;
-    }
-
-    let bookContacts = 0;
-    const contacts = ctx.db
+    // Both counts stop at the cap, so the query stays cheap however large the import is.
+    const unanalyzed = await unanalyzedImported(ctx, workspace._id, numberId).take(
+      UNANALYZED_COUNT_CAP,
+    );
+    const bookContacts = await ctx.db
       .query("contacts")
-      .withIndex("by_number", (q) => q.eq("numberId", numberId));
-    for await (const contact of contacts) {
-      if (contact.bookName) bookContacts++;
-    }
+      .withIndex("by_number", (q) => q.eq("numberId", numberId))
+      .filter((q) => q.neq(q.field("bookName"), undefined))
+      .take(UNANALYZED_COUNT_CAP);
 
     return {
       historyImport,
       contactsImport,
       building: !!historyImport?.buildJobId || !!pending,
-      importedConversations,
-      unanalyzed,
-      bookContacts,
+      // The build's final run keeps this count current.
+      importedConversations: historyImport?.conversations ?? 0,
+      unanalyzed: unanalyzed.length,
+      bookContacts: bookContacts.length,
     };
   },
 });

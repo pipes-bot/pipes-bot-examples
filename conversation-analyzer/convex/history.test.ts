@@ -1146,7 +1146,7 @@ describe("importStatus", () => {
 
   it("counts unanalyzed up to the cap", async () => {
     const t = makeT();
-    const { workspaceId, numberId } = await seedNumber(t);
+    const { workspaceId, numberId } = await seedNumber(t, { ...requested, conversations: 1005 });
     await t.run(async (ctx) => {
       const contactId = await ctx.db.insert("contacts", { numberId, waId: "1" });
       for (let i = 0; i < 1005; i++) {
@@ -1166,6 +1166,63 @@ describe("importStatus", () => {
     });
     const result = await status(t, numberId);
     expect(result!.unanalyzed).toBe(1000);
+    // Read from the build's count, not scanned.
     expect(result!.importedConversations).toBe(1005);
+  });
+
+  it("counts book contacts up to the cap", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 1003; i++) {
+        await ctx.db.insert("contacts", { numberId, waId: `${i}`, bookName: `Name ${i}` });
+      }
+      await ctx.db.insert("contacts", { numberId, waId: "plain" });
+    });
+    expect((await status(t, numberId))!.bookContacts).toBe(1000);
+  });
+
+  it("is building while a build job is scheduled even without pending rows", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    expect((await status(t, numberId))!.building).toBe(false);
+    const buildJobId = await t.run((ctx) =>
+      ctx.scheduler.runAfter(600_000, internal.history.build, { numberId }),
+    );
+    await t.run((ctx) =>
+      ctx.db.patch(numberId, { historyImport: { ...requested, buildJobId } }),
+    );
+    expect((await status(t, numberId))!.building).toBe(true);
+  });
+
+  it("does not count a failed analysis as unanalyzed, and analyzeImported skips it", async () => {
+    const t = makeT();
+    const { workspaceId, numberId } = await seedNumber(t);
+    const base = {
+      workspaceId,
+      numberId,
+      imported: true as const,
+      status: "closed" as const,
+      initiatedBy: "customer" as const,
+      openedAt: 1,
+      lastActivityAt: 2,
+      closedAt: 2,
+      lastTurn: "customer" as const,
+    };
+    await t.run(async (ctx) => {
+      const contactId = await ctx.db.insert("contacts", { numberId, waId: "1" });
+      await ctx.db.insert("conversations", {
+        ...base,
+        contactId,
+        analysis: { state: "failed", methodology: [], requestedAt: 1 },
+      });
+      await ctx.db.insert("conversations", { ...base, contactId });
+    });
+
+    expect((await status(t, numberId))!.unanalyzed).toBe(1);
+    const result = await t
+      .withIdentity({ subject: OWNER })
+      .mutation(api.history.analyzeImported, { numberId });
+    expect(result).toEqual({ requested: 1, remaining: 0 });
   });
 });
