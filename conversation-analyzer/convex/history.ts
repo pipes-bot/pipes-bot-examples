@@ -54,9 +54,25 @@ export async function applyHistoryEvent(
     });
     return "processed";
   }
-  if (summary.mediaFollowUp || summary.messageCount === 0 || !storageId) {
-    return ignore(ctx, storageId);
+  if (summary.mediaFollowUp) return ignore(ctx, storageId);
+  if (summary.messageCount === 0 && summary.progress !== undefined) {
+    // A chunk that only reports progress: record it and let the build's final
+    // run decide whether the import is done.
+    if (storageId) await ctx.storage.delete(storageId);
+    const buildJobId =
+      history.buildJobId ??
+      (await ctx.scheduler.runAfter(0, internal.history.build, { numberId: current._id }));
+    await ctx.db.patch(current._id, {
+      historyImport: {
+        ...history,
+        progress: Math.max(history.progress, summary.progress),
+        updatedAt: now,
+        buildJobId,
+      },
+    });
+    return "processed";
   }
+  if (summary.messageCount === 0 || !storageId) return ignore(ctx, storageId);
 
   await ctx.db.patch(current._id, {
     historyImport: {

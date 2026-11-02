@@ -9,6 +9,7 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { flattenHistory, summarizeHistory } from "./lib/history";
 import { DEFAULT_METHODOLOGY } from "./lib/methodology";
+import { computeMetrics } from "./lib/metrics";
 
 const NOW = 1_800_000_000_000;
 const POOL = "pn_abc123";
@@ -208,6 +209,63 @@ describe("history.receive", () => {
     const t = makeT();
     const { numberId } = await seedNumber(t);
     const { outcome } = await receive(t, historyMedia, "wh_1");
+    expect(outcome).toBe("ignored");
+    expect((await getNumber(t, numberId))!.historyImport).toEqual(requested);
+    expect(await jobs(t)).toHaveLength(0);
+  });
+
+  /** The chunk fixture with its threads emptied and the given progress (or none). */
+  function emptyChunk(progress: number | undefined): any {
+    const payload = structuredClone(historyChunk) as any;
+    const item = payload.whatsapp.history[0];
+    item.threads = [];
+    if (progress === undefined) delete item.metadata.progress;
+    else item.metadata.progress = progress;
+    return payload;
+  }
+
+  it("an empty progress-100 chunk after built rows marks the import done", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    await receive(t, historyChunk, "wh_1");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect((await getNumber(t, numberId))!.historyImport).toMatchObject({
+      state: "importing",
+      progress: 40,
+      conversations: 1,
+    });
+
+    const { outcome, storageId } = await receive(t, emptyChunk(100), "wh_2");
+    expect(outcome).toBe("processed");
+    expect(storageId).toBeUndefined();
+    expect((await getNumber(t, numberId))!.historyImport).toMatchObject({
+      state: "importing",
+      progress: 100,
+      chunks: 1,
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const history = (await getNumber(t, numberId))!.historyImport!;
+    expect(history).toMatchObject({ state: "done", progress: 100, chunks: 1, conversations: 1 });
+    expect(history.buildJobId).toBeUndefined();
+  });
+
+  it("an empty progress chunk leaves a pending build alone", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t, { ...requested, state: "importing", progress: 40 });
+    await t.mutation(internal.history.stage, { numberId, rows: [row("w1", 1_000)] });
+    const buildJobId = (await getNumber(t, numberId))!.historyImport!.buildJobId;
+
+    expect((await receive(t, emptyChunk(100), "wh_1")).outcome).toBe("processed");
+
+    expect((await getNumber(t, numberId))!.historyImport).toMatchObject({ progress: 100, buildJobId });
+    expect((await jobs(t)).filter((j) => j.name.includes("history:build"))).toHaveLength(1);
+  });
+
+  it("ignores an empty chunk without progress", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    const { outcome } = await receive(t, emptyChunk(undefined), "wh_1");
     expect(outcome).toBe("ignored");
     expect((await getNumber(t, numberId))!.historyImport).toEqual(requested);
     expect(await jobs(t)).toHaveLength(0);
@@ -736,6 +794,65 @@ describe("build", () => {
     const built = await imported(t);
     expect(built).toHaveLength(2);
     expect((await messagesOf(t, built[1]._id)).map((m) => m.wamid)).toEqual(["h1", "h2"]);
+  });
+
+  it("rebuild recomputes the metrics of a closed live conversation that loses folded messages", async () => {
+    const t = makeT();
+    const { workspaceId, numberId } = await seedNumber(t);
+    const contactId = await seedContact(t, numberId);
+    const t0 = NOW - 3 * HOUR;
+    const live = await seedLive(t, { workspaceId, numberId, contactId }, "open", [
+      { wamid: "live1", sentAt: t0 + 35 * MIN, source: "customer" },
+      { wamid: "live2", sentAt: t0 + 45 * MIN, source: "phone" },
+    ]);
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [at("h1", t0), at("h2", t0 + 5 * MIN, "phone")],
+    });
+    await buildAll(t, numberId);
+    expect(await messagesOf(t, live)).toHaveLength(4);
+
+    // The live conversation closes with the folded history counted in its metrics.
+    await t.run(async (ctx) => {
+      const messages = await ctx.db
+        .query("messages")
+        .withIndex("by_conversation_sent_at", (q) => q.eq("conversationId", live))
+        .collect();
+      await ctx.db.patch(live, {
+        status: "closed",
+        closedAt: t0 + 3 * HOUR,
+        metrics: computeMetrics(messages),
+      });
+    });
+    const closed = (await t.run((ctx) => ctx.db.get(live)))!;
+    expect(closed.metrics).toMatchObject({
+      firstResponseSeconds: 300,
+      counts: { customer: 2, phone: 2, api: 0 },
+    });
+
+    await t.mutation(internal.history.stage, { numberId, rows: [at("h0", t0 - DAY)] });
+    await buildAll(t, numberId);
+
+    const rebuilt = (await t.run((ctx) => ctx.db.get(live)))!;
+    expect((await messagesOf(t, live)).map((m) => m.wamid)).toEqual(["live1", "live2"]);
+    expect(rebuilt).toMatchObject({ status: "closed", openedAt: t0 + 35 * MIN });
+    expect(rebuilt.metrics).toMatchObject({
+      firstResponseSeconds: 600,
+      counts: { customer: 1, phone: 1, api: 0 },
+    });
+    const built = await imported(t);
+    expect(built).toHaveLength(2);
+    expect((await messagesOf(t, built[1]._id)).map((m) => m.wamid)).toEqual(["h1", "h2"]);
+
+    const all = await conversationsOf(t);
+    const customers = all.reduce((sum, c) => sum + (c.metrics?.counts.customer ?? 0), 0);
+    expect(customers).toBe(3); // h0, h1, live1: each counted once
+    const month = await t
+      .withIdentity({ subject: "owner_1" })
+      .query(api.dashboard.overview, { days: 30 });
+    expect(month.total).toBe(3);
+    // h1→h2 (300 s) and live1→live2 (600 s); h0 is unanswered.
+    expect(month.medianFirstResponseSeconds).toBe(450);
   });
 
   it("marks done only at progress 100", async () => {
