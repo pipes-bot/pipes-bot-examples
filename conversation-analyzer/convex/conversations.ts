@@ -6,7 +6,7 @@ import { requireConversation } from "./authz";
 import type { Step } from "./lib/methodology";
 import { computeMetrics, type Source } from "./lib/metrics";
 
-const DEFAULT_INACTIVITY_MINUTES = 120;
+export const DEFAULT_INACTIVITY_MINUTES = 120;
 
 /**
  * Stores one message and keeps its conversation's activity in step: opens a
@@ -97,12 +97,13 @@ export async function requestAnalysis(
   ctx: MutationCtx,
   conversationId: Id<"conversations">,
   methodology: Step[],
+  delayMs = 0,
 ): Promise<void> {
   const requestedAt = Date.now();
   await ctx.db.patch(conversationId, {
     analysis: { state: "pending", methodology, requestedAt },
   });
-  await ctx.scheduler.runAfter(0, internal.analysis.analyzeConversation, {
+  await ctx.scheduler.runAfter(delayMs, internal.analysis.analyzeConversation, {
     conversationId,
     requestedAt,
   });

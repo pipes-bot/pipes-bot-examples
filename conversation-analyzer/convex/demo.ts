@@ -1,8 +1,10 @@
 import { ConvexError, v } from "convex/values";
 import { components } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
+import { resolveContact } from "./contactLookup";
 import { closeConversation } from "./conversations";
+import { buildContact } from "./history";
 import { ingestPayload } from "./ingest";
 
 const BUSINESS_PHONE = "15550100000";
@@ -60,6 +62,116 @@ const SCENARIOS: Scenario[] = [
       // The reply below went out through the API: only its statuses reach us.
       { from: "api", at: 2 * MINUTE, text: "Thanks for writing! We are checking the stock." },
       { from: "phone", at: 30 * MINUTE, text: "Good news, the blue jacket is back in stock in all sizes." },
+    ],
+  },
+];
+
+type HistoryTurn = {
+  from: "customer" | "phone";
+  /** Minutes after the chat starts. */
+  at: number;
+  text: string;
+};
+
+type HistoryChat = {
+  /** How many days before the seed the chat starts. */
+  daysAgo: number;
+  /** Extra hours before that day mark, so the chats do not all start at the same time of day. */
+  hoursEarlier: number;
+  turns: HistoryTurn[];
+};
+
+type HistoryContact = { waId: string; bookName: string; chats: HistoryChat[] };
+
+/**
+ * Chat history imported from the business phone. The gaps inside a chat stay
+ * under the default 120-minute window and the chats are days apart, so the
+ * six chats below become six conversations.
+ */
+const HISTORY: HistoryContact[] = [
+  {
+    waId: "15550100001",
+    bookName: "Ana Souza",
+    chats: [
+      {
+        daysAgo: 18,
+        hoursEarlier: 2,
+        turns: [
+          { from: "customer", at: 0, text: "Good morning! What are your opening hours on Saturday?" },
+          { from: "phone", at: 3, text: "Good morning Ana! On Saturdays we are open from 9am to 2pm." },
+          { from: "customer", at: 5, text: "Perfect, I will drop by around noon." },
+          { from: "phone", at: 6, text: "See you then!" },
+        ],
+      },
+      {
+        daysAgo: 9,
+        hoursEarlier: 7,
+        turns: [
+          { from: "customer", at: 0, text: "Hi, the shoes I bought are too small. Can I return them?" },
+          { from: "phone", at: 35, text: "Hi Ana, sorry for the wait. Yes, returns are free within 30 days." },
+          { from: "phone", at: 36, text: "Just bring them with the receipt and we will swap the size." },
+          { from: "customer", at: 50, text: "Great, I will come by tomorrow." },
+        ],
+      },
+    ],
+  },
+  {
+    waId: "15550100002",
+    bookName: "Ben Carter",
+    chats: [
+      {
+        daysAgo: 14,
+        hoursEarlier: 5,
+        turns: [
+          { from: "customer", at: 0, text: "Hello, I ordered a backpack last week. Any news on the delivery?" },
+          { from: "customer", at: 30, text: "I still have no tracking number." },
+          { from: "phone", at: 95, text: "Hi Ben, apologies for the delay. Your order #47990 shipped this morning." },
+          { from: "phone", at: 96, text: "The tracking code is BR449201 and it should arrive in 3 days." },
+          { from: "customer", at: 110, text: "Thanks, got it." },
+        ],
+      },
+    ],
+  },
+  {
+    waId: "15550100005",
+    bookName: "Eva Lima",
+    chats: [
+      {
+        daysAgo: 12,
+        hoursEarlier: 3,
+        turns: [
+          { from: "customer", at: 0, text: "Hi, my package arrived with a broken lid." },
+          { from: "customer", at: 1, text: "I can send a photo if you need." },
+          { from: "phone", at: 20, text: "Hi Eva, I am sorry about that. A photo helps, please send it over." },
+          { from: "customer", at: 28, text: "Sent it a minute ago, did you see it?" },
+          { from: "phone", at: 40, text: "Yes, we will send a replacement at no cost. It ships tomorrow." },
+        ],
+      },
+      {
+        daysAgo: 6,
+        hoursEarlier: 9,
+        turns: [
+          { from: "customer", at: 0, text: "Hello! Is my replacement on the way?" },
+          { from: "phone", at: 2, text: "Hi Eva! Yes, it left our warehouse yesterday." },
+          { from: "phone", at: 3, text: "You will get it by Thursday." },
+          { from: "customer", at: 4, text: "Wonderful, thank you." },
+        ],
+      },
+    ],
+  },
+  {
+    waId: "15550100006",
+    bookName: "Frank Moss",
+    chats: [
+      {
+        // A complaint nobody answered.
+        daysAgo: 3,
+        hoursEarlier: 1,
+        turns: [
+          { from: "customer", at: 0, text: "I was charged twice for order #48105. This is unacceptable." },
+          { from: "customer", at: 12, text: "Please refund me today or I will dispute it with my bank." },
+        ],
+      },
     ],
   },
 ];
@@ -156,6 +268,8 @@ function scenarioPayloads(poolNumberId: string, scenario: Scenario, startMs: num
 /**
  * Feeds four realistic conversations through the real ingestion path, then
  * closes them so metrics and analysis run as they would for live traffic.
+ * It also stages imported chat history and an address book, as a number
+ * connected with the history and contacts import would receive.
  * Run with: npx convex run demo:seed '{"email":"you@example.com"}'
  */
 export const seed = internalMutation({
@@ -197,7 +311,67 @@ export const seed = internalMutation({
       .withIndex("by_number_status_activity", (q) => q.eq("numberId", number._id).eq("status", "open"))
       .collect();
     for (const conversation of open) await closeConversation(ctx, conversation._id, now);
-    return { poolNumberId, conversations: open.length };
+
+    // The address book of the business phone, then the history it shared.
+    await ingest({
+      id: `evt_demo_${poolNumberId}_book`,
+      field: "smb_app_state_sync",
+      createdAt: new Date(now).toISOString(),
+      pipes: { appId: "app_demo", poolNumberId, media: {} },
+      whatsapp: {
+        messaging_product: "whatsapp",
+        metadata: { display_phone_number: BUSINESS_PHONE, phone_number_id: "demo" },
+        state_sync: HISTORY.map((contact) => ({
+          type: "contact",
+          contact: {
+            full_name: contact.bookName,
+            first_name: contact.bookName.split(" ")[0],
+            phone_number: contact.waId,
+          },
+          action: "add",
+          metadata: { timestamp: String(Math.floor(now / 1000)) },
+        })),
+      },
+    });
+
+    let staged = 0;
+    const contactIds: Id<"contacts">[] = [];
+    for (const contact of HISTORY) {
+      const contactId = await resolveContact(ctx, number._id, { waId: contact.waId }, undefined);
+      if (!contactId) throw new ConvexError("Could not create the demo contact.");
+      contactIds.push(contactId);
+      for (const chat of contact.chats) {
+        const dayStart = now - chat.daysAgo * DAY_MS - chat.hoursEarlier * 3_600_000;
+        for (const turn of chat.turns) {
+          await ctx.db.insert("historyMessages", {
+            numberId: number._id,
+            contactId,
+            wamid: `wamid.demo_hist_${poolNumberId}_${++staged}`,
+            source: turn.from,
+            type: "text",
+            text: turn.text,
+            sentAt: dayStart + turn.at * 60_000,
+            pending: true,
+          });
+        }
+      }
+    }
+    // The live scenarios are closed by now, so no history segment folds into one.
+    let imported = 0;
+    for (const contactId of contactIds) imported += await buildContact(ctx, number, contactId);
+
+    await ctx.db.patch(number._id, {
+      historyImport: {
+        state: "done",
+        progress: 100,
+        chunks: 3,
+        messages: staged,
+        conversations: imported,
+        updatedAt: now,
+      },
+      contactsImport: { state: "received", updatedAt: now },
+    });
+    return { poolNumberId, conversations: open.length, imported };
   },
 });
 
@@ -253,8 +427,18 @@ export const reset = internalMutation({
         .query("events")
         .withIndex("by_pool_number_state", (q) => q.eq("poolNumberId", number.poolNumberId))
         .collect();
-      for (const event of events) await ctx.db.delete(event._id);
+      for (const event of events) {
+        if (event.storageId) await ctx.storage.delete(event.storageId);
+        await ctx.db.delete(event._id);
+      }
       deleted += events.length;
+
+      const history = await ctx.db
+        .query("historyMessages")
+        .withIndex("by_number_contact_sent_at", (q) => q.eq("numberId", number._id))
+        .collect();
+      for (const row of history) await ctx.db.delete(row._id);
+      deleted += history.length;
 
       await ctx.db.delete(number._id);
       deleted += 1;

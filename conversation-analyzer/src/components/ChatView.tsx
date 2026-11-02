@@ -7,6 +7,7 @@ type Message = Doc<"messages">;
 function bodyOf(message: Message): string {
   if (message.source === "api" && !message.text) return "Sent via API (content not available)";
   if (message.type === "text") return message.text ?? "";
+  if (message.type === "media_placeholder") return "[media]";
   return message.text ? `[${message.type}] ${message.text}` : `[${message.type}]`;
 }
 

@@ -58,7 +58,7 @@ describe("createSignupLink", () => {
 
     const result = await t
       .withIdentity({ subject: "user_a" })
-      .action(api.numbers.createSignupLink, {});
+      .action(api.numbers.createSignupLink, { importHistory: true, importContacts: false });
 
     expect(result).toEqual({ url: "https://app.pipes.bot/apps/acme?token=jwt.abc" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -71,6 +71,23 @@ describe("createSignupLink", () => {
     expect(body.redirectUrl).toBe("https://analyzer.example.com/numbers/connected");
   });
 
+  it("sends the import flags", async () => {
+    const t = makeT();
+    await seed(t, "user_a");
+    const fetchMock = vi.fn(async () => jsonResponse({ token: "jwt.abc" }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await t
+      .withIdentity({ subject: "user_a" })
+      .action(api.numbers.createSignupLink, { importHistory: true, importContacts: false });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body).toMatchObject({ importHistory: true, importContacts: false });
+    expect(body.metadata).toBeDefined();
+    expect(body.redirectUrl).toBeDefined();
+  });
+
   it("surfaces API errors", async () => {
     const t = makeT();
     await seed(t, "user_a");
@@ -79,7 +96,7 @@ describe("createSignupLink", () => {
     ) as unknown as typeof fetch;
 
     await expect(
-      t.withIdentity({ subject: "user_a" }).action(api.numbers.createSignupLink, {}),
+      t.withIdentity({ subject: "user_a" }).action(api.numbers.createSignupLink, { importHistory: true, importContacts: false }),
     ).rejects.toThrow(/400.*redirectUrl must use HTTPS protocol/);
   });
 
@@ -90,7 +107,7 @@ describe("createSignupLink", () => {
     globalThis.fetch = vi.fn() as unknown as typeof fetch;
 
     await expect(
-      t.withIdentity({ subject: "user_a" }).action(api.numbers.createSignupLink, {}),
+      t.withIdentity({ subject: "user_a" }).action(api.numbers.createSignupLink, { importHistory: true, importContacts: false }),
     ).rejects.toThrow(/PIPES_APP_SLUG is not set/);
   });
 });

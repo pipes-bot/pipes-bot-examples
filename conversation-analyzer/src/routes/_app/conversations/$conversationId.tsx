@@ -61,11 +61,16 @@ function ConversationPage() {
           </Link>
         )}
         <h1 className="text-xl font-semibold">
-          {contact?.name ?? contact?.waId ?? contact?.userId ?? "Unknown contact"}
+          {contact?.bookName ?? contact?.name ?? contact?.waId ?? contact?.userId ?? "Unknown contact"}
         </h1>
         <p className="text-sm text-muted-foreground">
           {conversation.status === "open" ? "Open" : "Closed"} · opened{" "}
           {formatDateTime(conversation.openedAt)}
+          {conversation.imported && (
+            <Badge variant="secondary" className="ml-2">
+              Imported
+            </Badge>
+          )}
         </p>
       </header>
       <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
@@ -183,7 +188,7 @@ function AnalysisCard({
             disabled={busy || (inProgress && !stuck)}
             onClick={() => run(reanalyze)}
           >
-            Re-analyze
+            {analysis === undefined ? "Analyze" : "Re-analyze"}
           </Button>
         )}
       </CardContent>

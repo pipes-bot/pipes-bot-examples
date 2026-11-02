@@ -23,6 +23,8 @@ const KNOWN_FEATURES = new Set([
   "templates",
   "media",
   "mcp",
+  "history-import",
+  "contacts-sync",
 ]);
 const START = "<!-- examples:start -->";
 const END = "<!-- examples:end -->";

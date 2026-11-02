@@ -17,7 +17,8 @@ function contentOf(message: { source: Source; type: string; text?: string }): st
     if (text) return text;
     return message.source === "api" ? "[content not available]" : "[text]";
   }
-  return text ? `[${message.type}] ${text}` : `[${message.type}]`;
+  const label = message.type === "media_placeholder" ? "media" : message.type;
+  return text ? `[${label}] ${text}` : `[${label}]`;
 }
 
 export function buildTranscript(

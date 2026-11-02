@@ -1,0 +1,43 @@
+{
+  "id": "evt_2c4e6a8b1d3f4a5c7e9b0d1c2f3a4b5e",
+  "field": "smb_app_state_sync",
+  "createdAt": "2025-01-15T10:40:09.321Z",
+  "pipes": {
+    "appId": "app_abc123",
+    "poolNumberId": "pn_abc123",
+    "media": {}
+  },
+  "whatsapp": {
+    "messaging_product": "whatsapp",
+    "metadata": {
+      "display_phone_number": "15550001111",
+      "phone_number_id": "pn_meta_1"
+    },
+    "state_sync": [
+      {
+        "type": "contact",
+        "contact": {
+          "full_name": "Sheena Nelson",
+          "first_name": "Sheena",
+          "phone_number": "16505551234"
+        },
+        "action": "add",
+        "metadata": {
+          "timestamp": "1760400000"
+        }
+      },
+      {
+        "type": "contact",
+        "contact": {
+          "full_name": "Old Contact",
+          "first_name": "Old",
+          "phone_number": "16505550000"
+        },
+        "action": "remove",
+        "metadata": {
+          "timestamp": "1760400100"
+        }
+      }
+    ]
+  }
+}

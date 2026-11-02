@@ -20,7 +20,7 @@ test("throws on an unknown fixture", () => {
 
 test("lists every fixture and each one parses", () => {
   const names = listFixtures();
-  assert.equal(names.length, 17);
+  assert.equal(names.length, 22);
   assert.deepEqual(names, [...names].sort());
   for (const name of names) assert.doesNotThrow(() => loadFixture(name));
 });

@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import historyChunk from "../tests/fixtures/history-chunk.json";
+import smbAppStateSync from "../tests/fixtures/smb-app-state-sync.json";
 import testWebhook from "../tests/fixtures/test-webhook.json";
 import { makeT, signedRequest, TEST_WEBHOOK_SECRET } from "../tests/helpers";
 
@@ -86,5 +88,106 @@ describe("POST /webhooks/pipes", () => {
     const rows = await events(t);
     expect(rows).toHaveLength(1);
     expect(rows[0].webhookId).toBe("msg_same");
+  });
+
+  it("sends history to storage, not ingest", async () => {
+    const t = makeT();
+    const res = await post(t, await signedRequest(historyChunk));
+    expect(res.status).toBe(200);
+    const rows = await events(t);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe("history");
+    expect(rows[0].storageId).toBeDefined();
+    expect(rows[0].payload.whatsapp).toBeUndefined();
+    expect(rows[0].payload.summary).toMatchObject({ messageCount: 2, progress: 40 });
+    const stored = await t.run(async (ctx) => (await ctx.storage.get(rows[0].storageId!))?.text());
+    expect(JSON.parse(stored!).field).toBe("history");
+  });
+
+  it("accepts a history chunk over 1 MiB", async () => {
+    const t = makeT();
+    const chunk = structuredClone(historyChunk) as any;
+    chunk.whatsapp.history[0].threads[0].messages = Array.from({ length: 6000 }, (_, i) => ({
+      from: "16505551234",
+      id: `wamid.BIG${i}`,
+      timestamp: String(1_760_400_000 + i),
+      type: "text",
+      text: { body: "hello there, this is a message with some filler text to add weight" },
+      history_context: { status: "READ" },
+    }));
+    const req = await signedRequest(chunk);
+    expect(req.body.length).toBeGreaterThan(1024 * 1024);
+    const res = await post(t, req);
+    expect(res.status).toBe(200);
+    const rows = await events(t);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].storageId).toBeDefined();
+    expect(rows[0].payload.summary.messageCount).toBe(6000);
+  });
+
+  it("splits a large address book into events of 500 items", async () => {
+    const t = makeT({ transactionLimits: true });
+    const numberId = await t.run(async (ctx) => {
+      const workspaceId = await ctx.db.insert("workspaces", {
+        ownerId: "owner_a",
+        name: "Acme",
+        inactivityMinutes: 120,
+        methodology: [],
+      });
+      return ctx.db.insert("numbers", {
+        workspaceId,
+        poolNumberId: smbAppStateSync.pipes.poolNumberId,
+        phoneNumber: "+15550001111",
+        displayName: "Support",
+        connectedAt: 0,
+      });
+    });
+    const book = structuredClone(smbAppStateSync) as any;
+    book.whatsapp.state_sync = Array.from({ length: 1200 }, (_, i) => ({
+      type: "contact",
+      contact: { full_name: `Person ${i}`, phone_number: `1650555${String(i).padStart(4, "0")}` },
+      action: "add",
+      metadata: { timestamp: "1760400000" },
+    }));
+    const req = await signedRequest(book, { id: "msg_book" });
+
+    expect((await post(t, req)).status).toBe(200);
+    const rows = (await events(t)).sort((a, b) => a.webhookId.localeCompare(b.webhookId));
+    expect(rows.map((r) => r.webhookId)).toEqual(["msg_book#0", "msg_book#1", "msg_book#2"]);
+    expect(rows.map((r) => r.state)).toEqual(["processed", "processed", "processed"]);
+    expect(rows.map((r) => r.payload.whatsapp.state_sync.length)).toEqual([500, 500, 200]);
+    expect(rows[2].payload.whatsapp.state_sync[0].contact.full_name).toBe("Person 1000");
+    const contacts = await t.run((ctx) =>
+      ctx.db
+        .query("contacts")
+        .withIndex("by_number", (q) => q.eq("numberId", numberId))
+        .collect(),
+    );
+    expect(contacts).toHaveLength(1200);
+    expect(contacts.every((c) => c.bookName?.startsWith("Person "))).toBe(true);
+
+    // A redelivery of the same webhook id is a duplicate of every slice.
+    expect((await post(t, req)).status).toBe(200);
+    expect(await events(t)).toHaveLength(3);
+    expect(
+      await t.run(async (ctx) => (await ctx.db.query("contacts").collect()).length),
+    ).toBe(1200);
+  });
+
+  it("keeps the webhook id of an address book with up to 500 items", async () => {
+    const t = makeT();
+    const req = await signedRequest(smbAppStateSync, { id: "msg_small_book" });
+    expect((await post(t, req)).status).toBe(200);
+    expect((await events(t)).map((r) => r.webhookId)).toEqual(["msg_small_book"]);
+  });
+
+  it("does not store a blob for a history event without messages", async () => {
+    const t = makeT();
+    const declined = { ...structuredClone(historyChunk), id: "evt_declined" } as any;
+    declined.whatsapp.history = [{ errors: [{ code: 2593109 }] }];
+    expect((await post(t, await signedRequest(declined))).status).toBe(200);
+    const rows = await events(t);
+    expect(rows[0].kind).toBe("history");
+    expect(rows[0].storageId).toBeUndefined();
   });
 });

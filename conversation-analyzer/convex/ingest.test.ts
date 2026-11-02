@@ -38,10 +38,15 @@ function envelope(fixture: object, poolNumberId = POOL): any {
   return copy;
 }
 
-function onboarded(numberId: string, workspaceId?: string): any {
+function onboarded(
+  numberId: string,
+  workspaceId?: string,
+  flags: { importHistory?: boolean; importContacts?: boolean } = {},
+): any {
   const copy = structuredClone(numberOnboarded) as any;
   copy.data.numberId = numberId;
   if (workspaceId) copy.data.metadata = { workspaceId };
+  Object.assign(copy.data, flags);
   return copy;
 }
 
@@ -106,6 +111,52 @@ describe("ingest", () => {
     const messages = await all(t, "messages");
     expect(messages).toHaveLength(1);
     expect(messages[0].source).toBe("customer");
+  });
+
+  it("onboarded with import flags records requested states", async () => {
+    const t = makeT();
+    const workspaceId = await seedWorkspace(t);
+
+    await ingest(t, onboarded("pn_new", workspaceId, { importHistory: true, importContacts: true }));
+
+    const [number] = await all(t, "numbers");
+    expect(number.historyImport).toEqual({
+      state: "requested",
+      progress: 0,
+      chunks: 0,
+      messages: 0,
+      conversations: 0,
+      updatedAt: NOW,
+    });
+    expect(number.contactsImport).toEqual({ state: "requested", updatedAt: NOW });
+  });
+
+  it("onboarded without flags records nothing", async () => {
+    const t = makeT();
+    const workspaceId = await seedWorkspace(t);
+
+    await ingest(t, onboarded("pn_new", workspaceId));
+
+    const [number] = await all(t, "numbers");
+    expect(number.historyImport).toBeUndefined();
+    expect(number.contactsImport).toBeUndefined();
+  });
+
+  it("repeated onboarded does not regress import state", async () => {
+    const t = makeT();
+    const { workspaceId, numberId } = await seedNumber(t);
+    await t.run((ctx) =>
+      ctx.db.patch(numberId, {
+        historyImport: { state: "importing", progress: 40, chunks: 2, messages: 90, conversations: 0, updatedAt: 1 },
+        contactsImport: { state: "received", updatedAt: 1 },
+      }),
+    );
+
+    await ingest(t, onboarded(POOL, workspaceId, { importHistory: true, importContacts: true }));
+
+    const [number] = await all(t, "numbers");
+    expect(number.historyImport).toMatchObject({ state: "importing", progress: 40, chunks: 2 });
+    expect(number.contactsImport).toEqual({ state: "received", updatedAt: 1 });
   });
 
   it("onboarded without metadata is parked", async () => {

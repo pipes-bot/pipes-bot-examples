@@ -1,0 +1,83 @@
+{
+  "id": "evt_6b2d8f0a4c3e5b7d9f1a2c3d4e5f6a7b",
+  "field": "history",
+  "createdAt": "2025-01-15T10:41:12.345Z",
+  "pipes": {
+    "appId": "app_abc123",
+    "poolNumberId": "pn_abc123",
+    "media": {}
+  },
+  "whatsapp": {
+    "messaging_product": "whatsapp",
+    "metadata": {
+      "display_phone_number": "15550001111",
+      "phone_number_id": "pn_meta_1"
+    },
+    "history": [
+      {
+        "metadata": {
+          "phase": 1,
+          "chunk_order": 2,
+          "progress": 100
+        },
+        "threads": [
+          {
+            "id": "16505559876",
+            "messages": [
+              {
+                "from": "16505559876",
+                "id": "wamid.HIST3",
+                "timestamp": "1757000000",
+                "type": "text",
+                "text": {
+                  "body": "hi, is the blue jacket still available?"
+                },
+                "history_context": {
+                  "status": "READ"
+                }
+              },
+              {
+                "from": "15550001111",
+                "to": "16505559876",
+                "id": "wamid.HIST4",
+                "timestamp": "1757000300",
+                "type": "text",
+                "text": {
+                  "body": "Hi! Yes, we have it in M and L."
+                },
+                "history_context": {
+                  "status": "READ"
+                }
+              },
+              {
+                "from": "16505559876",
+                "id": "wamid.HIST5",
+                "timestamp": "1757086400",
+                "type": "text",
+                "text": {
+                  "body": "great, I'll take the L"
+                },
+                "history_context": {
+                  "status": "READ"
+                }
+              },
+              {
+                "from": "15550001111",
+                "to": "16505559876",
+                "id": "wamid.HIST6",
+                "timestamp": "1757086700",
+                "type": "text",
+                "text": {
+                  "body": "Done! It will ship tomorrow."
+                },
+                "history_context": {
+                  "status": "DELIVERED"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

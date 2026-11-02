@@ -3,7 +3,7 @@ title: Conversation analyzer
 description: Connect WhatsApp Business numbers, capture every reply sent from the phone, and score each conversation on response time and your support methodology
 type: app
 stack: [tanstack-router, convex, better-auth, openrouter, typescript]
-features: [webhooks, byon-v2, embedded-signup, coexistence, echoes]
+features: [webhooks, byon-v2, embedded-signup, coexistence, echoes, history-import, contacts-sync]
 ---
 
 # Conversation analyzer
@@ -19,6 +19,7 @@ The app only observes. It never sends a message. Your team keeps answering from 
 - A live overview of waiting customers, response times, and scores.
 - A conversation view with the transcript, metrics, a summary, and a verdict with quoted evidence for each methodology step.
 - An editable methodology checklist and inactivity window per workspace.
+- An optional import of the phone's chat history (up to 6 months) and address book when you connect a Coexistence number.
 - A demo seed so you can see all of it without a phone.
 
 Stack: TanStack Router (static SPA built with Vite), Convex (HTTP actions, reactive queries, scheduler, crons), Better Auth (Convex component, `crossDomain` plugin), Tailwind v4 and shadcn/ui, AI SDK 7 with OpenRouter.
@@ -26,8 +27,10 @@ Stack: TanStack Router (static SPA built with Vite), Convex (HTTP actions, react
 ## pipes.bot features used
 
 - Webhooks with Standard Webhooks signatures (`POST /webhooks/pipes`)
-- BYON API v2 events: `number.onboarded`, `messages`, `smb_message_echoes`, message statuses
-- Embedded signup: `POST /v1/apps/token` with `metadata.workspaceId`
+- BYON API v2 events: `number.onboarded`, `messages`, `smb_message_echoes`, message statuses, `history`, `smb_app_state_sync`
+- Embedded signup: `POST /v1/apps/token` with `metadata.workspaceId`, `importHistory` and `importContacts`
+- Chat history import: `history` events, and the `importHistory` / `importContacts` flags in `number.onboarded`
+- Contacts sync: `smb_app_state_sync` events with the phone's address book
 - Coexistence echoes: replies sent from the phone
 - Number health: `GET /v1/pool-numbers/{id}/health`
 
@@ -91,6 +94,8 @@ pnpm dev
 - **`/webhooks/pipes` answers 500.** `PIPES_WEBHOOK_SECRET` is not set on the deployment. A 401 means the secret does not match the App's `whsec_` secret.
 - **Connecting a number fails.** `PIPES_API_KEY` or `PIPES_APP_SLUG` is not set, or the key is not the App's `ak_` key.
 - **Conversations stay in `skipped`.** `OPENROUTER_API_KEY` is not set, so nothing is analyzed.
+- **The chat history never arrives (the number stays on "Waiting for history").** In order of likelihood: the number is not on the WhatsApp Business app (Coexistence), so there is nothing to import; the business chose not to share history on the phone (the number shows "History not shared"); more than 24 hours passed since the number was connected, so WhatsApp no longer offers the import; or the import is not enabled on pipes.bot for your App (the `SMB_SYNC_ENABLED` switch on the pipes.bot side). WhatsApp allows the import once per number, so none of these can be retried for the same number. A webhook that fails also makes the history chunk fail: pipes.bot answers WhatsApp with an error and WhatsApp retries, so check the Convex logs for a 5xx on `/webhooks/pipes`. Very large chunks (roughly 10 MiB and up) may fail in Convex the same way.
+- **The names from the address book do not show up.** **Import contacts** was unchecked when the number was connected, so pipes.bot never sent the contacts. Names appear only for contacts the phone has saved; everyone else keeps the WhatsApp profile name or the number.
 
 `pnpm test` runs the Convex functions against `convex-test`, `pnpm typecheck` checks the app and the functions, and `pnpm build` produces the static bundle. The webhook payloads in `tests/fixtures/` are copies of files in the repo's `fixtures/byon-v2/`, so this folder does not import anything from the repo root.
 
@@ -104,14 +109,14 @@ pnpm dev
 
 ## Try it without a phone
 
-Sign up in the app once so your workspace exists, then seed four conversations for your account:
+Sign up in the app once so your workspace exists, then seed the demo number for your account:
 
 ```bash
 npx convex run demo:seed '{"email":"you@example.com"}'
 npx convex run demo:reset '{"email":"you@example.com"}'   # removes the demo number and everything under it
 ```
 
-These are internal functions, so they run from the CLI only. The seed goes through the same ingestion function as real webhooks and closes the conversations right away. The four scenarios are: a quick answer from the phone, a customer left waiting, a customer who never got a reply, and a reply sent through the API. Without `OPENROUTER_API_KEY` the analysis shows as skipped; with a key it runs for the answered ones.
+These are internal functions, so they run from the CLI only. The seed goes through the same ingestion function as real webhooks and closes the conversations right away. The four scenarios are: a quick answer from the phone, a customer left waiting, a customer who never got a reply, and a reply sent through the API. It also adds 6 imported conversations and address book names (see Chat history and contacts import below). Without `OPENROUTER_API_KEY` the analysis shows as skipped; with a key it runs for the answered ones.
 
 To exercise the webhook route itself, use the simulator from the repo root (run `pnpm install` there first). It signs a fixture with your secret and posts it:
 
@@ -201,6 +206,51 @@ Computed in code by a pure function, from the WhatsApp timestamps. A customer tu
 
 An hourly cron calls `GET /v1/pool-numbers/{id}/health` for each number and maps the result to healthy, unhealthy or unknown (also used when the call fails). Demo numbers are skipped, and without `PIPES_API_KEY` real numbers show as unknown. The Numbers page shows the badge.
 
+## Chat history and contacts import
+
+When you connect a number that already runs on the WhatsApp Business app (Coexistence), the app can ask pipes.bot for two things: the chat history of the last 6 months, and the phone's address book. The app still only observes.
+
+The public pipes.bot docs page on coexistence (`byon/coexistence`) still says pipes.bot does not import past conversations. The import is documented on the pipes.bot docs page "BYON API v2 Migration", in the "Chat history and contacts (Coexistence)" section.
+
+### The flow
+
+1. On **Numbers**, **Connect a number** opens a panel with two checkboxes, both checked: **Import chat history (up to 6 months)** and **Import contacts**. `createSignupLink` sends them as `importHistory` and `importContacts` in `POST /v1/apps/token`. They override the App's own switch, in both directions.
+2. `number.onboarded` carries `data.importHistory` and `data.importContacts`. The number gets `historyImport` (`requested`, `importing`, `done`, `declined`) and `contactsImport` (`requested`, `received`). A repeated `number.onboarded` never moves a state backwards.
+3. The phone asks the business whether to share the history. Only the phone decides. A refusal arrives as one event with error code `2593109` and the state becomes `declined`.
+4. History chunks arrive as `history` events, out of order, with up to thousands of messages each. `POST /webhooks/pipes` stores the raw body in Convex file storage and does not send it through `ingest`. `history.receive` deduplicates it, parks it if the number is unknown yet, and updates the progress. `history.processChunk` (an action) reads the blob and `history.stage` writes the messages to `historyMessages` in batches of 500.
+5. Each `stage` call schedules `history.build` 10 minutes later and cancels the previous one, so the build waits until the chunks stop arriving. The build handles one contact per run: it splits the messages into conversations with the workspace inactivity window, and creates closed conversations marked `imported`, with metrics and no AI analysis. If the newest segment touches an open live conversation, its messages are folded into that conversation. A late chunk rebuilds the affected contacts, so the result does not depend on the order of the chunks. A progress-only chunk (no messages) finishes the import.
+6. `smb_app_state_sync` events carry the phone's address book, first the full list and then every edit. `POST /webhooks/pipes` splits a large address book into batches of 500 contacts, each ingested as its own event (`<webhook id>#0`, `#1`, …). `contactsSync.ts` stores the name in `contacts.bookName` (`add`) or clears it (`remove`). The name shown everywhere is the address book name, then the WhatsApp profile name, then the number.
+7. The conversations count in the overview by their real dates and show an **Imported** badge. The AI analysis runs only when you ask: **Analyze** on a conversation, or **Analyze imported conversations (N)** on the number page, which requests up to 100 per click, 3 seconds apart, and confirms first because it uses your OpenRouter key. Without `OPENROUTER_API_KEY` the bulk button shows an error and queues nothing.
+
+The **Import** card on the number page and the **Import** column on **Numbers** show where the import is: "Waiting for history", "Importing history 40%", "Building history", "History imported", "History not shared" and "Contacts imported". The demo seed includes 6 imported conversations and address book names, so you can see all of it without a phone.
+
+### Files
+
+| File | What it does |
+| --- | --- |
+| `convex/lib/history.ts` | Pure functions: `summarizeHistory`, `flattenHistory`, `segmentMessages` |
+| `convex/history.ts` | `receive`, `processChunk`, `stage`, `build` and `buildContact`, `skipOlder` (rows past the 3,000-message cap), `analyzeImported`, `importStatus` |
+| `convex/contactsSync.ts` | Applies `smb_app_state_sync` (`add` and `remove`) to `contacts.bookName` |
+| `convex/contactLookup.ts` | Finds or creates a contact by phone or BSUID, shared by ingestion, the history stage and the contacts sync |
+| `src/components/ImportCard.tsx` | The **Import** card and the bulk analyze button |
+| `src/components/ImportBadges.tsx` | The history and contacts status badges. The **Imported** badge is inline in `src/routes/_app/numbers/$numberId.tsx` and `src/routes/_app/conversations/$conversationId.tsx` |
+
+### Limitations
+
+- WhatsApp offers the import once per number, in the 24 hours after connecting. It cannot be requested for a number that is already connected, and the business can refuse on the phone.
+- Only Coexistence numbers (the WhatsApp Business app) have anything to import. Legacy Apps ignore the flags.
+- Media is not imported. A media message in the history appears as `[media]`. The follow-up event with media from the last 14 days is ignored.
+- Delivery and read times are not imported, so imported conversations have response times but no status timing.
+- Very large contacts. Only the newest 3,000 messages per contact are imported. Older ones stay staged in `historyMessages` but are not turned into conversations.
+- A closed live conversation keeps its earlier AI analysis when a rebuild moves history messages out of it.
+- When a number moves to another workspace, its contacts and address-book names belong to the number, not the workspace, so the old workspace's conversations show names synced later. The Import card's imported-conversation count reflects the last build.
+- The Import card's counts scan the imported conversations and may fail on a very large import where most conversations are already analyzed.
+- A chunk whose processing throws is lost: WhatsApp does not resend an event that was accepted. Check the logs.
+- Changing the inactivity window later does not re-segment imported conversations.
+- A rebuild caused by a late chunk drops the AI analysis of that contact's imported conversations. In practice the chunk arrives minutes later, before anyone asks for an analysis.
+- The overview reads at most 1000 conversations in the window, which can cut a 30-day view for a large number.
+- The AI transcript shows only the time (`HH:MM`), so an imported conversation that crosses midnight looks out of order.
+
 ## Privacy
 
 Conversation transcripts (message text, labeled Customer and Agent) are sent to an AI provider through OpenRouter to be analyzed.
@@ -219,6 +269,9 @@ Left out on purpose, and good next steps:
 - Ranking per agent. The echo does not say who answered.
 - Business hours. Response times are wall-clock.
 - Sending messages. The app only observes.
+- Importing history for numbers that are already connected. WhatsApp does not allow it.
+- Downloading or showing media from the imported history.
+- A Live / Imported filter in the overview.
 - Disconnecting numbers.
 - Organizations and invitations. There is one workspace per account.
 - Showing media. Media messages appear as a type label with the caption.
