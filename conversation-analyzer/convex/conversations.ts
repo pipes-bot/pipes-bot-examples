@@ -6,7 +6,7 @@ import { requireConversation } from "./authz";
 import type { Step } from "./lib/methodology";
 import { computeMetrics, type Source } from "./lib/metrics";
 
-const DEFAULT_INACTIVITY_MINUTES = 120;
+export const DEFAULT_INACTIVITY_MINUTES = 120;
 
 /**
  * Stores one message and keeps its conversation's activity in step: opens a

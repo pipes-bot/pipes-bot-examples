@@ -3,7 +3,9 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, type MutationCtx } from "./_generated/server";
 import { resolveContact } from "./contactLookup";
-import { flattenHistory, type HistorySummary } from "./lib/history";
+import { DEFAULT_INACTIVITY_MINUTES } from "./conversations";
+import { flattenHistory, segmentMessages, type HistorySummary } from "./lib/history";
+import { computeMetrics, type Source } from "./lib/metrics";
 
 /** Rows per `history.stage` call, so one mutation stays well under the Convex transaction limits. */
 export const STAGE_BATCH = 500;
@@ -181,7 +183,13 @@ export const stage = internalMutation({
     }
 
     const history = number.historyImport;
-    if (history.buildJobId) await ctx.scheduler.cancel(history.buildJobId);
+    if (history.buildJobId) {
+      try {
+        await ctx.scheduler.cancel(history.buildJobId);
+      } catch {
+        // The job already ran or was canceled; nothing to cancel.
+      }
+    }
     const buildJobId = await ctx.scheduler.runAfter(BUILD_DEBOUNCE_MS, internal.history.build, {
       numberId,
     });
@@ -197,9 +205,197 @@ export const stage = internalMutation({
   },
 });
 
-/** Stub; the real build replaces it. */
+const turnOf = (source: Source): "customer" | "business" =>
+  source === "customer" ? "customer" : "business";
+
+/** The contact's conversations (open and closed) on this number, in its current workspace. */
+async function contactConversations(
+  ctx: MutationCtx,
+  number: Doc<"numbers">,
+  contactId: Id<"contacts">,
+): Promise<Doc<"conversations">[]> {
+  const all: Doc<"conversations">[] = [];
+  for (const status of ["open", "closed"] as const) {
+    all.push(
+      ...(await ctx.db
+        .query("conversations")
+        .withIndex("by_contact_status", (q) => q.eq("contactId", contactId).eq("status", status))
+        .collect()),
+    );
+  }
+  return all.filter((c) => c.numberId === number._id && c.workspaceId === number.workspaceId);
+}
+
+/**
+ * Undoes the previous build of a contact: deletes its imported conversations
+ * with their messages, and the imported messages folded into live
+ * conversations. Returns the live conversations as they are afterwards.
+ */
+async function undoBuild(
+  ctx: MutationCtx,
+  conversations: Doc<"conversations">[],
+): Promise<Doc<"conversations">[]> {
+  const live: Doc<"conversations">[] = [];
+  for (const conversation of conversations) {
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation_sent_at", (q) => q.eq("conversationId", conversation._id))
+      .collect();
+    if (conversation.imported) {
+      for (const message of messages) await ctx.db.delete(message._id);
+      await ctx.db.delete(conversation._id);
+      continue;
+    }
+    const folded = messages.filter((m) => m.imported);
+    const kept = messages.filter((m) => !m.imported);
+    // A live conversation always holds a live message; one without any is left as is.
+    if (folded.length === 0 || kept.length === 0) {
+      live.push(conversation);
+      continue;
+    }
+    for (const message of folded) await ctx.db.delete(message._id);
+    const patch: Partial<Doc<"conversations">> = {
+      openedAt: kept[0].sentAt,
+      initiatedBy: turnOf(kept[0].source),
+    };
+    // The live conversation may have closed with the folded messages counted.
+    if (conversation.metrics) patch.metrics = computeMetrics(kept);
+    await ctx.db.patch(conversation._id, patch);
+    live.push({ ...conversation, ...patch });
+  }
+  return live;
+}
+
+async function insertImportedMessages(
+  ctx: MutationCtx,
+  conversationId: Id<"conversations">,
+  rows: Doc<"historyMessages">[],
+): Promise<void> {
+  for (const row of rows) {
+    await ctx.db.insert("messages", {
+      conversationId,
+      wamid: row.wamid,
+      direction: row.source === "customer" ? "inbound" : "outbound",
+      source: row.source,
+      type: row.type,
+      text: row.text,
+      sentAt: row.sentAt,
+      imported: true,
+    });
+  }
+}
+
+/**
+ * Rebuilds one contact's imported conversations from its staged history and
+ * clears its pending rows. Returns how many imported conversations it created;
+ * a segment folded into a live conversation is not counted.
+ */
+export async function buildContact(
+  ctx: MutationCtx,
+  number: Doc<"numbers">,
+  contactId: Id<"contacts">,
+): Promise<number> {
+  const workspace = await ctx.db.get(number.workspaceId);
+  const inactivityMs = (workspace?.inactivityMinutes ?? DEFAULT_INACTIVITY_MINUTES) * 60_000;
+
+  const live = await undoBuild(ctx, await contactConversations(ctx, number, contactId));
+
+  const staged = await ctx.db
+    .query("historyMessages")
+    .withIndex("by_number_contact_sent_at", (q) =>
+      q.eq("numberId", number._id).eq("contactId", contactId),
+    )
+    .collect();
+  // After the undo, any wamid still in `messages` came from live traffic.
+  const fresh: Doc<"historyMessages">[] = [];
+  for (const row of staged) {
+    const existing = await ctx.db
+      .query("messages")
+      .withIndex("by_wamid", (q) => q.eq("wamid", row.wamid))
+      .first();
+    if (!existing) fresh.push(row);
+  }
+  const segments = segmentMessages(fresh, inactivityMs);
+
+  // The last segment joins the live conversation that continues it.
+  const last = segments[segments.length - 1];
+  if (last) {
+    const end = last[last.length - 1].sentAt;
+    const next = live
+      .filter((c) => c.openedAt >= end)
+      .sort((a, b) => a.openedAt - b.openedAt)[0];
+    if (next?.status === "open" && next.openedAt - end <= inactivityMs) {
+      segments.pop();
+      await insertImportedMessages(ctx, next._id, last);
+      // lastTurn and waitingSince stay decided by the live traffic.
+      await ctx.db.patch(next._id, {
+        openedAt: last[0].sentAt,
+        initiatedBy: turnOf(last[0].source),
+      });
+    }
+  }
+
+  for (const segment of segments) {
+    const first = segment[0];
+    const end = segment[segment.length - 1];
+    const conversationId = await ctx.db.insert("conversations", {
+      workspaceId: number.workspaceId,
+      numberId: number._id,
+      contactId,
+      imported: true,
+      status: "closed",
+      initiatedBy: turnOf(first.source),
+      openedAt: first.sentAt,
+      lastActivityAt: end.sentAt,
+      closedAt: end.sentAt,
+      lastTurn: turnOf(end.source),
+      metrics: computeMetrics(segment),
+    });
+    await insertImportedMessages(ctx, conversationId, segment);
+  }
+
+  for (const row of staged) {
+    if (row.pending) await ctx.db.patch(row._id, { pending: undefined });
+  }
+  return segments.length;
+}
+
+/**
+ * Builds one contact with pending rows per run and chains the next run. The
+ * run that finds nothing pending recounts the imported conversations, clears
+ * the debounced job and marks the import done once progress reached 100.
+ */
 export const build = internalMutation({
   args: { numberId: v.id("numbers") },
   returns: v.null(),
-  handler: async (): Promise<null> => null,
+  handler: async (ctx, { numberId }): Promise<null> => {
+    const number = await ctx.db.get(numberId);
+    if (!number?.historyImport) return null;
+
+    const pending = await ctx.db
+      .query("historyMessages")
+      .withIndex("by_number_pending", (q) => q.eq("numberId", numberId).eq("pending", true))
+      .first();
+    if (pending) {
+      await buildContact(ctx, number, pending.contactId);
+      await ctx.scheduler.runAfter(0, internal.history.build, { numberId });
+      return null;
+    }
+
+    const imported = await ctx.db
+      .query("conversations")
+      .withIndex("by_number_imported", (q) => q.eq("numberId", numberId).eq("imported", true))
+      .filter((q) => q.eq(q.field("workspaceId"), number.workspaceId))
+      .collect();
+    const { buildJobId: _done, ...history } = number.historyImport;
+    const finished = history.state === "importing" && history.progress === 100;
+    await ctx.db.patch(numberId, {
+      historyImport: {
+        ...history,
+        conversations: imported.length,
+        ...(finished ? { state: "done" as const, updatedAt: Date.now() } : {}),
+      },
+    });
+    return null;
+  },
 });

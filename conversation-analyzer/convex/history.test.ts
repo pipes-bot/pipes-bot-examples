@@ -5,9 +5,9 @@ import historyDeclined from "../tests/fixtures/history-declined.json";
 import historyMedia from "../tests/fixtures/history-media.json";
 import numberOnboarded from "../tests/fixtures/number-onboarded.json";
 import { makeT } from "../tests/helpers";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { summarizeHistory } from "./lib/history";
+import { flattenHistory, summarizeHistory } from "./lib/history";
 import { DEFAULT_METHODOLOGY } from "./lib/methodology";
 
 const NOW = 1_800_000_000_000;
@@ -257,8 +257,9 @@ describe("history.processChunk", () => {
   it("stages the rows", async () => {
     const t = makeT();
     const { numberId } = await seedNumber(t);
-    await receive(t, historyChunk, "wh_1");
-    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const { storageId } = await receive(t, historyChunk, "wh_1");
+    // Run the action directly so the debounced build does not consume the rows.
+    await t.action(internal.history.processChunk, { numberId, storageId: storageId! });
 
     const staged = await rows(t);
     expect(staged).toHaveLength(2);
@@ -285,6 +286,20 @@ describe("history.processChunk", () => {
 
     expect(await rows(t)).toHaveLength(2);
     expect((await getNumber(t, numberId))!.historyImport).toMatchObject({ messages: 2, chunks: 2 });
+  });
+
+  it("the debounced build turns the staged chunk into conversations", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    await receive(t, historyComplete, "wh_1");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect((await rows(t)).some((r) => r.pending)).toBe(false);
+    const conversations = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(conversations).toHaveLength(2);
+    const history = (await getNumber(t, numberId))!.historyImport!;
+    expect(history).toMatchObject({ state: "done", conversations: 2 });
+    expect(history.buildJobId).toBeUndefined();
   });
 
   it("does nothing when the blob is gone", async () => {
@@ -354,5 +369,464 @@ describe("history.stage", () => {
       rows: [row("w1", 1_000), row("w1", 1_000), row("w2", 2_000)],
     });
     expect(result).toEqual({ inserted: 2 });
+  });
+});
+
+describe("build", () => {
+  const MIN = 60_000;
+  const HOUR = 60 * MIN;
+  const DAY = 24 * HOUR;
+  const WA = "16505551234";
+
+  const at = (wamid: string, sentAt: number, source: "customer" | "phone" = "customer") => ({
+    ...row(wamid, sentAt),
+    source,
+    text: wamid,
+  });
+
+  const pendingRow = (t: T, numberId: Id<"numbers">) =>
+    t.run((ctx) =>
+      ctx.db
+        .query("historyMessages")
+        .withIndex("by_number_pending", (q) => q.eq("numberId", numberId).eq("pending", true))
+        .first(),
+    );
+
+  /** Runs the build chain by hand (no timers, so the debounced job never fires), then the final run. */
+  async function buildAll(t: T, numberId: Id<"numbers">) {
+    for (let i = 0; i < 50 && (await pendingRow(t, numberId)); i++) {
+      await t.mutation(internal.history.build, { numberId });
+    }
+    expect(await pendingRow(t, numberId)).toBeNull();
+    await t.mutation(internal.history.build, { numberId });
+  }
+
+  const conversationsOf = (t: T) => t.run((ctx) => ctx.db.query("conversations").collect());
+  const allMessages = (t: T) => t.run((ctx) => ctx.db.query("messages").collect());
+  const messagesOf = (t: T, conversationId: Id<"conversations">) =>
+    t.run((ctx) =>
+      ctx.db
+        .query("messages")
+        .withIndex("by_conversation_sent_at", (q) => q.eq("conversationId", conversationId))
+        .collect(),
+    );
+  const imported = async (t: T) =>
+    (await conversationsOf(t)).filter((c) => c.imported).sort((a, b) => a.openedAt - b.openedAt);
+
+  const seedContact = (t: T, numberId: Id<"numbers">) =>
+    t.run((ctx) => ctx.db.insert("contacts", { numberId, waId: WA }));
+
+  /** A live (not imported) conversation with its live messages. */
+  async function seedLive(
+    t: T,
+    ids: { workspaceId: Id<"workspaces">; numberId: Id<"numbers">; contactId: Id<"contacts"> },
+    status: "open" | "closed",
+    messages: { wamid: string; sentAt: number; source: "customer" | "phone" }[],
+  ) {
+    return t.run(async (ctx) => {
+      const first = messages[0];
+      const last = messages[messages.length - 1];
+      const conversationId = await ctx.db.insert("conversations", {
+        ...ids,
+        status,
+        initiatedBy: first.source === "customer" ? "customer" : "business",
+        openedAt: first.sentAt,
+        lastActivityAt: last.sentAt,
+        lastTurn: last.source === "customer" ? "customer" : "business",
+        ...(status === "closed" ? { closedAt: last.sentAt } : {}),
+      });
+      for (const m of messages) {
+        await ctx.db.insert("messages", {
+          conversationId,
+          wamid: m.wamid,
+          direction: m.source === "customer" ? "inbound" : "outbound",
+          source: m.source,
+          type: "text",
+          text: m.wamid,
+          sentAt: m.sentAt,
+        });
+      }
+      return conversationId;
+    });
+  }
+
+  it("builds closed imported conversations with metrics", async () => {
+    const t = makeT();
+    const { workspaceId, numberId } = await seedNumber(t);
+    await t.mutation(internal.history.stage, { numberId, rows: flattenHistory(historyComplete) });
+    await buildAll(t, numberId);
+
+    const built = await imported(t);
+    expect(built).toHaveLength(2);
+    expect(await conversationsOf(t)).toHaveLength(2);
+    for (const c of built) {
+      expect(c).toMatchObject({
+        workspaceId,
+        numberId,
+        imported: true,
+        status: "closed",
+        initiatedBy: "customer",
+        lastTurn: "business",
+      });
+      expect(c.analysis).toBeUndefined();
+      expect(c.closeJobId).toBeUndefined();
+      expect(c.waitingSince).toBeUndefined();
+      expect(c.metrics!.firstResponseSeconds).toBe(300);
+    }
+    expect(built[0]).toMatchObject({
+      openedAt: 1_757_000_000_000,
+      lastActivityAt: 1_757_000_300_000,
+      closedAt: 1_757_000_300_000,
+    });
+    expect(built[1]).toMatchObject({
+      openedAt: 1_757_086_400_000,
+      lastActivityAt: 1_757_086_700_000,
+      closedAt: 1_757_086_700_000,
+    });
+
+    const first = await messagesOf(t, built[0]._id);
+    expect(first.map((m) => [m.wamid, m.direction, m.source, m.imported])).toEqual([
+      ["wamid.HIST3", "inbound", "customer", true],
+      ["wamid.HIST4", "outbound", "phone", true],
+    ]);
+    expect(first[0]).toMatchObject({ type: "text", text: "hi, is the blue jacket still available?" });
+    expect(await allMessages(t)).toHaveLength(4);
+
+    expect((await jobs(t)).some((j) => j.name.includes("analysis"))).toBe(false);
+    const history = (await getNumber(t, numberId))!.historyImport!;
+    expect(history.conversations).toBe(2);
+    expect(history.buildJobId).toBeUndefined();
+  });
+
+  it("builds one contact per run and chains the next", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    const base = NOW - 5 * DAY;
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [at("a1", base), { ...at("b1", base), threadId: "16505550000" }],
+    });
+    const buildJobId = (await getNumber(t, numberId))!.historyImport!.buildJobId;
+
+    await t.mutation(internal.history.build, { numberId });
+    expect(await imported(t)).toHaveLength(1);
+    const builds = (await jobs(t)).filter((j) => j.name.includes("history:build"));
+    expect(builds).toHaveLength(2);
+    expect(builds.find((j) => j._id !== buildJobId)!.scheduledTime - NOW).toBeLessThan(1_000);
+    // Chain links leave the debounced job id alone.
+    expect((await getNumber(t, numberId))!.historyImport!.buildJobId).toBe(buildJobId);
+
+    await t.mutation(internal.history.build, { numberId });
+    expect(await imported(t)).toHaveLength(2);
+    expect(await pendingRow(t, numberId)).toBeNull();
+  });
+
+  it("a build with nothing pending changes no conversations", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    await t.mutation(internal.history.stage, { numberId, rows: flattenHistory(historyComplete) });
+    await buildAll(t, numberId);
+    const before = await conversationsOf(t);
+    const beforeMessages = await allMessages(t);
+    const jobCount = (await jobs(t)).length;
+
+    await t.mutation(internal.history.build, { numberId });
+
+    expect(await conversationsOf(t)).toEqual(before);
+    expect(await allMessages(t)).toEqual(beforeMessages);
+    expect(await jobs(t)).toHaveLength(jobCount);
+  });
+
+  it("imported conversations count in the overview", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [
+        at("o1", NOW - 40 * DAY),
+        at("o2", NOW - 40 * DAY + 2 * MIN, "phone"),
+        at("m1", NOW - 3 * DAY),
+        at("m2", NOW - 3 * DAY + 5 * MIN, "phone"),
+        at("n1", NOW - 2 * DAY),
+        at("n2", NOW - 2 * DAY + 5 * MIN, "phone"),
+      ],
+    });
+    await buildAll(t, numberId);
+    expect(await imported(t)).toHaveLength(3);
+
+    const asOwner = t.withIdentity({ subject: "owner_1" });
+    const month = await asOwner.query(api.dashboard.overview, { days: 30 });
+    expect(month.total).toBe(2);
+    expect(month.answeredRate).toBe(1);
+    expect(month.medianFirstResponseSeconds).toBe(300);
+    expect((await asOwner.query(api.dashboard.overview, { days: 30, numberId })).total).toBe(2);
+  });
+
+  it("live wamid is not imported again", async () => {
+    const t = makeT();
+    const { workspaceId, numberId } = await seedNumber(t);
+    const contactId = await seedContact(t, numberId);
+    const base = NOW - 5 * DAY;
+    const live = await seedLive(t, { workspaceId, numberId, contactId }, "closed", [
+      { wamid: "w_live", sentAt: base + 2 * MIN, source: "phone" },
+    ]);
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [at("w1", base), at("w_live", base + 2 * MIN, "phone"), at("w3", base + 3 * DAY)],
+    });
+    await buildAll(t, numberId);
+
+    const built = await imported(t);
+    expect(built).toHaveLength(2);
+    expect((await messagesOf(t, built[0]._id)).map((m) => m.wamid)).toEqual(["w1"]);
+    expect((await allMessages(t)).filter((m) => m.wamid === "w_live")).toHaveLength(1);
+    expect((await messagesOf(t, live)).map((m) => m.wamid)).toEqual(["w_live"]);
+  });
+
+  it("folds the last segment into the open live conversation", async () => {
+    const t = makeT();
+    const { workspaceId, numberId } = await seedNumber(t);
+    const contactId = await seedContact(t, numberId);
+    const t0 = NOW - 3 * HOUR;
+    const live = await seedLive(t, { workspaceId, numberId, contactId }, "open", [
+      { wamid: "live1", sentAt: t0 + 35 * MIN, source: "customer" },
+    ]);
+    await t.run((ctx) => ctx.db.patch(live, { waitingSince: t0 + 35 * MIN }));
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [at("h0", t0 - DAY), at("h1", t0, "phone"), at("h2", t0 + 5 * MIN)],
+    });
+    await buildAll(t, numberId);
+
+    const built = await imported(t);
+    expect(built).toHaveLength(1);
+    expect((await messagesOf(t, built[0]._id)).map((m) => m.wamid)).toEqual(["h0"]);
+
+    const conversation = (await t.run((ctx) => ctx.db.get(live)))!;
+    expect(conversation).toMatchObject({
+      status: "open",
+      openedAt: t0,
+      initiatedBy: "business",
+      lastTurn: "customer",
+      lastActivityAt: t0 + 35 * MIN,
+      waitingSince: t0 + 35 * MIN,
+    });
+    expect(conversation.imported).toBeUndefined();
+    expect((await messagesOf(t, live)).map((m) => [m.wamid, m.imported])).toEqual([
+      ["h1", true],
+      ["h2", true],
+      ["live1", undefined],
+    ]);
+    expect((await getNumber(t, numberId))!.historyImport!.conversations).toBe(1);
+  });
+
+  it("does not fold into a closed or distant live conversation", async () => {
+    for (const [status, gap] of [
+      ["closed", 30 * MIN],
+      ["open", 3 * HOUR],
+    ] as const) {
+      const t = makeT();
+      const { workspaceId, numberId } = await seedNumber(t);
+      const contactId = await seedContact(t, numberId);
+      const t0 = NOW - 6 * HOUR;
+      const liveAt = t0 + 5 * MIN + gap;
+      const live = await seedLive(t, { workspaceId, numberId, contactId }, status, [
+        { wamid: "live1", sentAt: liveAt, source: "customer" },
+      ]);
+      await t.mutation(internal.history.stage, {
+        numberId,
+        rows: [at("h1", t0), at("h2", t0 + 5 * MIN, "phone")],
+      });
+      await buildAll(t, numberId);
+
+      const built = await imported(t);
+      expect(built).toHaveLength(1);
+      expect((await messagesOf(t, built[0]._id)).map((m) => m.wamid)).toEqual(["h1", "h2"]);
+      expect((await messagesOf(t, live)).map((m) => m.wamid)).toEqual(["live1"]);
+      expect((await t.run((ctx) => ctx.db.get(live)))!.openedAt).toBe(liveAt);
+    }
+  });
+
+  it("rebuild after a late chunk is idempotent", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    const t0 = NOW - 5 * DAY;
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [at("a", t0), at("b", t0 + 5 * MIN, "phone")],
+    });
+    await buildAll(t, numberId);
+    expect(await imported(t)).toHaveLength(1);
+
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [at("c", t0 - HOUR), at("d", t0 - 10 * HOUR)],
+    });
+    await buildAll(t, numberId);
+
+    const built = await imported(t);
+    expect(built).toHaveLength(2);
+    expect(await conversationsOf(t)).toHaveLength(2);
+    expect((await messagesOf(t, built[0]._id)).map((m) => m.wamid)).toEqual(["d"]);
+    expect((await messagesOf(t, built[1]._id)).map((m) => m.wamid)).toEqual(["c", "a", "b"]);
+    expect(built[1]).toMatchObject({ openedAt: t0 - HOUR, closedAt: t0 + 5 * MIN });
+    expect(built[1].metrics!.counts).toEqual({ customer: 2, phone: 1, api: 0 });
+    expect((await allMessages(t)).map((m) => m.wamid).sort()).toEqual(["a", "b", "c", "d"]);
+    expect((await getNumber(t, numberId))!.historyImport!.conversations).toBe(2);
+  });
+
+  it("rebuild after a fold restores the live conversation", async () => {
+    const t = makeT();
+    const { workspaceId, numberId } = await seedNumber(t);
+    const contactId = await seedContact(t, numberId);
+    const t0 = NOW - 3 * HOUR;
+    const live = await seedLive(t, { workspaceId, numberId, contactId }, "open", [
+      { wamid: "live1", sentAt: t0 + 35 * MIN, source: "customer" },
+      { wamid: "live2", sentAt: t0 + 40 * MIN, source: "phone" },
+    ]);
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [at("h1", t0, "phone"), at("h2", t0 + 5 * MIN)],
+    });
+    await buildAll(t, numberId);
+    expect((await t.run((ctx) => ctx.db.get(live)))!.initiatedBy).toBe("business");
+
+    await t.mutation(internal.history.stage, { numberId, rows: [at("h0", t0 - 30 * MIN)] });
+    await buildAll(t, numberId);
+
+    expect(await imported(t)).toHaveLength(0);
+    expect(await conversationsOf(t)).toHaveLength(1);
+    const messages = await messagesOf(t, live);
+    expect(messages.map((m) => m.wamid)).toEqual(["h0", "h1", "h2", "live1", "live2"]);
+    expect(messages.filter((m) => m.imported).map((m) => m.wamid)).toEqual(["h0", "h1", "h2"]);
+    expect(await allMessages(t)).toHaveLength(5);
+    expect((await t.run((ctx) => ctx.db.get(live)))!).toMatchObject({
+      openedAt: t0 - 30 * MIN,
+      initiatedBy: "customer",
+      lastTurn: "business",
+      lastActivityAt: t0 + 40 * MIN,
+    });
+  });
+
+  it("rebuild restores openedAt and initiatedBy when it no longer folds", async () => {
+    const t = makeT();
+    const { workspaceId, numberId } = await seedNumber(t);
+    const contactId = await seedContact(t, numberId);
+    const t0 = NOW - 3 * HOUR;
+    const live = await seedLive(t, { workspaceId, numberId, contactId }, "open", [
+      { wamid: "live1", sentAt: t0 + 35 * MIN, source: "customer" },
+    ]);
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [at("h1", t0, "phone"), at("h2", t0 + 5 * MIN)],
+    });
+    await buildAll(t, numberId);
+    expect((await t.run((ctx) => ctx.db.get(live)))!.openedAt).toBe(t0);
+
+    // The live conversation closed since; the rebuild must not fold into it again.
+    await t.run((ctx) => ctx.db.patch(live, { status: "closed", closedAt: t0 + 3 * HOUR }));
+    await t.mutation(internal.history.stage, { numberId, rows: [at("h0", t0 - DAY)] });
+    await buildAll(t, numberId);
+
+    expect((await t.run((ctx) => ctx.db.get(live)))!).toMatchObject({
+      openedAt: t0 + 35 * MIN,
+      initiatedBy: "customer",
+    });
+    expect((await messagesOf(t, live)).map((m) => m.wamid)).toEqual(["live1"]);
+    const built = await imported(t);
+    expect(built).toHaveLength(2);
+    expect((await messagesOf(t, built[1]._id)).map((m) => m.wamid)).toEqual(["h1", "h2"]);
+  });
+
+  it("marks done only at progress 100", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t, { ...requested, state: "importing", progress: 40 });
+    await t.mutation(internal.history.stage, { numberId, rows: flattenHistory(historyComplete) });
+    await buildAll(t, numberId);
+    expect((await getNumber(t, numberId))!.historyImport).toMatchObject({
+      state: "importing",
+      conversations: 2,
+    });
+
+    await t.run(async (ctx) => {
+      const number = (await ctx.db.get(numberId))!;
+      await ctx.db.patch(numberId, { historyImport: { ...number.historyImport!, progress: 100 } });
+    });
+    await t.mutation(internal.history.build, { numberId });
+    const history = (await getNumber(t, numberId))!.historyImport!;
+    expect(history).toMatchObject({ state: "done", conversations: 2 });
+    expect(history.buildJobId).toBeUndefined();
+  });
+
+  it("only builds and counts in the number's workspace", async () => {
+    const t = makeT();
+    const { numberId } = await seedNumber(t);
+    const contactId = await seedContact(t, numberId);
+    const oldWorkspace = await t.run((ctx) =>
+      ctx.db.insert("workspaces", {
+        ownerId: "owner_old",
+        name: "Old",
+        inactivityMinutes: 120,
+        methodology: [],
+      }),
+    );
+    // An imported conversation left with the workspace the number moved from.
+    const old = await t.run(async (ctx) => {
+      const conversationId = await ctx.db.insert("conversations", {
+        workspaceId: oldWorkspace,
+        numberId,
+        contactId,
+        imported: true,
+        status: "closed",
+        initiatedBy: "customer",
+        openedAt: NOW - 9 * DAY,
+        lastActivityAt: NOW - 9 * DAY,
+        closedAt: NOW - 9 * DAY,
+        lastTurn: "customer",
+      });
+      await ctx.db.insert("messages", {
+        conversationId,
+        wamid: "old1",
+        direction: "inbound",
+        source: "customer",
+        type: "text",
+        sentAt: NOW - 9 * DAY,
+        imported: true,
+      });
+      return conversationId;
+    });
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [at("old1", NOW - 9 * DAY), at("new1", NOW - 5 * DAY)],
+    });
+    await buildAll(t, numberId);
+
+    expect(await t.run((ctx) => ctx.db.get(old))).not.toBeNull();
+    expect(await messagesOf(t, old)).toHaveLength(1);
+    const built = (await imported(t)).filter((c) => c._id !== old);
+    expect(built).toHaveLength(1);
+    expect((await messagesOf(t, built[0]._id)).map((m) => m.wamid)).toEqual(["new1"]);
+    expect((await getNumber(t, numberId))!.historyImport!.conversations).toBe(1);
+  });
+
+  it("dashboard.conversations marks imported rows", async () => {
+    const t = makeT();
+    const { workspaceId, numberId } = await seedNumber(t);
+    const contactId = await seedContact(t, numberId);
+    const live = await seedLive(t, { workspaceId, numberId, contactId }, "closed", [
+      { wamid: "live1", sentAt: NOW - DAY, source: "customer" },
+    ]);
+    await t.mutation(internal.history.stage, {
+      numberId,
+      rows: [at("h1", NOW - 5 * DAY), at("h2", NOW - 5 * DAY + MIN, "phone")],
+    });
+    await buildAll(t, numberId);
+
+    const list = await t
+      .withIdentity({ subject: "owner_1" })
+      .query(api.dashboard.conversations, { numberId, status: "closed" });
+    expect(list).toHaveLength(2);
+    expect(list.find((c) => c._id === live)!.imported).toBe(false);
+    expect(list.find((c) => c._id !== live)!.imported).toBe(true);
   });
 });

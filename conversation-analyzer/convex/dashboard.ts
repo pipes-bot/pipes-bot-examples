@@ -123,6 +123,7 @@ export const conversations = query({
           status: conversation.status,
           openedAt: conversation.openedAt,
           lastActivityAt: conversation.lastActivityAt,
+          imported: conversation.imported === true,
           contactName: contactDisplayName(contact),
           contactLabel: contactLabel(contact),
           metrics: conversation.metrics,
