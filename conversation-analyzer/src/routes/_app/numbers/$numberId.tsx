@@ -3,6 +3,7 @@ import { useQuery } from "convex/react";
 import { useState } from "react";
 import { ConversationLink } from "@/components/ConversationLink";
 import { HealthBadge } from "@/components/HealthBadge";
+import { ImportCard } from "@/components/ImportCard";
 import { StatCards } from "@/components/StatCards";
 import { WaitingList } from "@/components/WaitingList";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +59,7 @@ function NumberPage() {
         </p>
       </header>
 
+      <ImportCard numberId={numberId} />
       <StatCards numberId={numberId} />
       <WaitingList numberId={numberId} />
 
@@ -94,6 +96,11 @@ function NumberPage() {
                         {conversation.contactName ?? conversation.contactLabel}
                       </span>
                     </ConversationLink>
+                    {conversation.imported && (
+                      <Badge variant="secondary" className="ml-2">
+                        Imported
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>{formatDateTime(conversation.lastActivityAt)}</TableCell>
                   <TableCell>{formatDuration(conversation.metrics?.firstResponseSeconds)}</TableCell>

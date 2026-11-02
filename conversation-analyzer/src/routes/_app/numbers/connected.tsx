@@ -33,6 +33,12 @@ function Connected() {
           {number.displayName} ({number.phoneNumber}) is connected and ready to receive
           conversations.
         </p>
+        {number.historyImport && (
+          <p className="text-sm text-muted-foreground">
+            If you shared chat history on the phone, past conversations appear here in a few
+            minutes.
+          </p>
+        )}
         <Link
           to="/numbers/$numberId"
           params={{ numberId: number._id }}
