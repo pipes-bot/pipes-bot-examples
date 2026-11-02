@@ -18,6 +18,9 @@ import type { Id } from "../../convex/_generated/dataModel";
 /** `history.importStatus` stops counting at this value. */
 const COUNT_CAP = 1000;
 
+/** Conversations one `history.analyzeImported` call queues (`ANALYZE_BATCH`). */
+const ANALYZE_BATCH = 100;
+
 function count(n: number): string {
   return n >= COUNT_CAP ? `${COUNT_CAP}+` : String(n);
 }
@@ -61,39 +64,38 @@ export function ImportCard({ numberId }: { numberId: Id<"numbers"> }) {
         <CardTitle>Import</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
-        {historyImport?.state === "declined" ? (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+          {historyImport && (
+            <>
+              <dt className="text-muted-foreground">History</dt>
+              <dd>
+                {status.building && historyImport.state === "importing"
+                  ? "Building history"
+                  : STATE_LABELS[historyImport.state]}
+                {historyImport.state === "importing" && (
+                  <span className="tabular-nums"> · {historyImport.progress}%</span>
+                )}
+              </dd>
+              <dt className="text-muted-foreground">Imported conversations</dt>
+              <dd className="tabular-nums">{status.importedConversations}</dd>
+            </>
+          )}
+          {contactsImport && (
+            <>
+              <dt className="text-muted-foreground">Contacts</dt>
+              <dd>
+                {contactsImport.state === "received" ? "Contacts imported" : "Waiting for contacts"}
+              </dd>
+              <dt className="text-muted-foreground">Contacts with a book name</dt>
+              <dd className="tabular-nums">{count(status.bookContacts)}</dd>
+            </>
+          )}
+        </dl>
+        {historyImport?.state === "declined" && (
           <p className="text-muted-foreground">
             The business chose not to share chat history on the phone. WhatsApp only allows the
             import once, so it can't be requested again for this number.
           </p>
-        ) : (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-            {historyImport && (
-              <>
-                <dt className="text-muted-foreground">History</dt>
-                <dd>
-                  {status.building && historyImport.state === "importing"
-                    ? "Building history"
-                    : STATE_LABELS[historyImport.state]}
-                  {historyImport.state === "importing" && (
-                    <span className="tabular-nums"> · {historyImport.progress}%</span>
-                  )}
-                </dd>
-                <dt className="text-muted-foreground">Imported conversations</dt>
-                <dd className="tabular-nums">{status.importedConversations}</dd>
-              </>
-            )}
-            {contactsImport && (
-              <>
-                <dt className="text-muted-foreground">Contacts</dt>
-                <dd>
-                  {contactsImport.state === "received" ? "Contacts imported" : "Waiting for contacts"}
-                </dd>
-                <dt className="text-muted-foreground">Contacts with a book name</dt>
-                <dd className="tabular-nums">{count(status.bookContacts)}</dd>
-              </>
-            )}
-          </dl>
         )}
         {status.unanalyzed > 0 && (
           <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
@@ -106,8 +108,8 @@ export function ImportCard({ numberId }: { numberId: Id<"numbers"> }) {
           <DialogHeader>
             <DialogTitle>Analyze imported conversations</DialogTitle>
             <DialogDescription>
-              This runs the AI analysis on {count(status.unanalyzed)} conversations using your
-              OpenRouter key.
+              This runs the AI analysis on {Math.min(status.unanalyzed, ANALYZE_BATCH)}{" "}
+              conversations using your OpenRouter key.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
