@@ -210,7 +210,7 @@ An hourly cron calls `GET /v1/pool-numbers/{id}/health` for each number and maps
 
 When you connect a number that already runs on the WhatsApp Business app (Coexistence), the app can ask pipes.bot for two things: the chat history of the last 6 months, and the phone's address book. The app still only observes.
 
-The public pipes.bot docs page on coexistence (`byon/coexistence`) still says pipes.bot does not import past conversations. That is out of date. For the events used here, read the "Chat history and contacts (Coexistence)" section of the BYON v2 migration guide, and expect the page to be updated.
+The public pipes.bot docs page on coexistence (`byon/coexistence`) still says pipes.bot does not import past conversations. The import is documented in the pipes.bot API v2 migration docs, in the "Chat history and contacts (Coexistence)" section.
 
 ### The flow
 
@@ -233,7 +233,7 @@ The **Import** card on the number page and the **Import** column on **Numbers** 
 | `convex/contactsSync.ts` | Applies `smb_app_state_sync` (`add` and `remove`) to `contacts.bookName` |
 | `convex/contactLookup.ts` | Finds or creates a contact by phone or BSUID, shared by ingestion, the history stage and the contacts sync |
 | `src/components/ImportCard.tsx` | The **Import** card and the bulk analyze button |
-| `src/components/ImportBadges.tsx` | The status badges and the **Imported** badge |
+| `src/components/ImportBadges.tsx` | The history and contacts status badges. The **Imported** badge is inline in `src/routes/_app/numbers/$numberId.tsx` and `src/routes/_app/conversations/$conversationId.tsx` |
 
 ### Limitations
 
