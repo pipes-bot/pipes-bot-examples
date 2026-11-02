@@ -1,0 +1,55 @@
+{
+  "id": "evt_5a1c7e9b3d2f4a6c8e0b1d2c3f4a5b6d",
+  "field": "history",
+  "createdAt": "2025-01-15T10:40:05.789Z",
+  "pipes": {
+    "appId": "app_abc123",
+    "poolNumberId": "pn_abc123",
+    "media": {}
+  },
+  "whatsapp": {
+    "messaging_product": "whatsapp",
+    "metadata": {
+      "display_phone_number": "15550001111",
+      "phone_number_id": "pn_meta_1"
+    },
+    "history": [
+      {
+        "metadata": {
+          "phase": 0,
+          "chunk_order": 1,
+          "progress": 40
+        },
+        "threads": [
+          {
+            "id": "16505551234",
+            "messages": [
+              {
+                "from": "16505551234",
+                "id": "wamid.HIST1",
+                "timestamp": "1760400000",
+                "type": "text",
+                "text": {
+                  "body": "do you deliver on sundays?"
+                },
+                "history_context": {
+                  "status": "READ"
+                }
+              },
+              {
+                "from": "15550001111",
+                "to": "16505551234",
+                "id": "wamid.HIST2",
+                "timestamp": "1760400060",
+                "type": "media_placeholder",
+                "history_context": {
+                  "status": "DELIVERED"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

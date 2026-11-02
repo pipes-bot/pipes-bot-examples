@@ -1,0 +1,31 @@
+{
+  "id": "evt_9b3d5f7a1c2e4b6d8f0a1c2b3e4d5f6a",
+  "field": "history",
+  "createdAt": "2025-01-15T10:40:02.123Z",
+  "pipes": {
+    "appId": "app_abc123",
+    "poolNumberId": "pn_abc123",
+    "media": {}
+  },
+  "whatsapp": {
+    "messaging_product": "whatsapp",
+    "metadata": {
+      "display_phone_number": "15550001111",
+      "phone_number_id": "pn_meta_1"
+    },
+    "history": [
+      {
+        "errors": [
+          {
+            "code": 2593109,
+            "title": "History sync is turned off by the business",
+            "message": "History sync is turned off by the business",
+            "error_data": {
+              "details": "History sync is turned off by the business"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

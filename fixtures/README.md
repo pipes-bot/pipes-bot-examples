@@ -20,6 +20,11 @@ Webhook payloads used by the simulator, the mock API and the tests.
 | `byon-v2/template-status-update.json` | https://docs.pipes.bot/fixtures/byon-v2/template-status-update.json | docs file |
 | `byon-v2/smb-message-echo.json` | `byon/coexistence.mdx` (Message echoes) | docs example |
 | `byon-v2/number-onboarded.json` | `byon/webhook-delivery.mdx` (The `number.onboarded` event) | docs example |
+| `byon-v2/history-chunk.json` | `pipes-bot docs/byon-v2-migration.mdx (Chat history and contacts)` | docs example |
+| `byon-v2/history-complete.json` | `pipes-bot docs/byon-v2-migration.mdx (Chat history and contacts)` | docs example |
+| `byon-v2/history-declined.json` | `pipes-bot docs/byon-v2-migration.mdx (Chat history and contacts)` | docs example |
+| `byon-v2/history-media.json` | `pipes-bot docs/byon-v2-migration.mdx (Chat history and contacts)` | docs example |
+| `byon-v2/smb-app-state-sync.json` | `pipes-bot docs/byon-v2-migration.mdx (Chat history and contacts)` | docs example |
 | `byon-v2/test-webhook.json` | `webhooks/payload.mdx` (Test payloads, Test Webhook) | docs example |
 | `sandbox/test-connection.json` | `webhooks/payload.mdx` (Test payloads, Test Connection) | docs example |
 | `sandbox/message-text.json` | `webhooks/payload.mdx` (Legacy payload, Text) | docs example |

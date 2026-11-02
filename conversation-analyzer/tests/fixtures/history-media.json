@@ -1,0 +1,38 @@
+{
+  "id": "evt_7c3e9a1b5d4f6c8e0a2b3d4e5f6a7b8c",
+  "field": "history",
+  "createdAt": "2025-01-15T10:42:30.456Z",
+  "pipes": {
+    "appId": "app_abc123",
+    "poolNumberId": "pn_abc123",
+    "media": {
+      "1003383421387256": {
+        "mediaId": "aBcDeFgHiJkLmNoPqRs1t",
+        "downloadUrl": "/v1/media/download/aBcDeFgHiJkLmNoPqRs1t",
+        "mimeType": "image/jpeg",
+        "byteSize": 48213
+      }
+    }
+  },
+  "whatsapp": {
+    "messaging_product": "whatsapp",
+    "metadata": {
+      "display_phone_number": "15550001111",
+      "phone_number_id": "pn_meta_1"
+    },
+    "messages": [
+      {
+        "from": "16505551234",
+        "id": "wamid.HIST7",
+        "timestamp": "1760400120",
+        "type": "image",
+        "image": {
+          "caption": "Do you have this one in blue?",
+          "mime_type": "image/jpeg",
+          "sha256": "N4Ts1d9cU0tQdPZ2r8uC5n3o2kE8tHn6yq3tJjv0wTU=",
+          "id": "1003383421387256"
+        }
+      }
+    ]
+  }
+}

@@ -27,6 +27,12 @@ describe("buildTranscript", () => {
     );
   });
 
+  it("media placeholder renders as [media]", () => {
+    expect(
+      buildTranscript([{ source: "phone", sentAt: at("09:05"), type: "media_placeholder" }]),
+    ).toBe("[09:05] Agent (phone): [media]");
+  });
+
   it("keeps each message on one line", () => {
     const transcript = buildTranscript([
       {
