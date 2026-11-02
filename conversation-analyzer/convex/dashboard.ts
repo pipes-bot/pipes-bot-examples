@@ -13,6 +13,11 @@ function contactLabel(contact: Doc<"contacts"> | null): string {
   return contact?.waId ?? contact?.userId ?? "";
 }
 
+/** The address book name wins over the WhatsApp profile name. */
+export function contactDisplayName(contact: Doc<"contacts"> | null): string | undefined {
+  return contact?.bookName ?? contact?.name;
+}
+
 export const overview = query({
   args: {
     days: v.union(v.literal(7), v.literal(30)),
@@ -86,7 +91,7 @@ export const waiting = query({
         return {
           conversationId: conversation._id,
           numberId: conversation.numberId,
-          contactName: contact?.name,
+          contactName: contactDisplayName(contact),
           contactId: contactLabel(contact),
           waitingSince,
           lastMessage: await lastMessageText(ctx, conversation._id),
@@ -118,7 +123,7 @@ export const conversations = query({
           status: conversation.status,
           openedAt: conversation.openedAt,
           lastActivityAt: conversation.lastActivityAt,
-          contactName: contact?.name,
+          contactName: contactDisplayName(contact),
           contactLabel: contactLabel(contact),
           metrics: conversation.metrics,
           analysisState: conversation.analysis?.state,

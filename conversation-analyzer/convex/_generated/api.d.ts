@@ -12,6 +12,7 @@ import type * as analysis from "../analysis.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as contactLookup from "../contactLookup.js";
+import type * as contactsSync from "../contactsSync.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authz: typeof authz;
   contactLookup: typeof contactLookup;
+  contactsSync: typeof contactsSync;
   conversations: typeof conversations;
   crons: typeof crons;
   dashboard: typeof dashboard;

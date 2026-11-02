@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { contactByUserId, resolveContact } from "./contactLookup";
+import { applyStateSync } from "./contactsSync";
 import { closeConversation, recordMessage } from "./conversations";
 import {
   contactName,
@@ -17,7 +18,7 @@ type EventState = Doc<"events">["state"];
 type Outcome = "duplicate" | EventState;
 
 /** Envelope fields that are projected; any other field is ignored. */
-const ENVELOPE_FIELDS = new Set(["messages", "smb_message_echoes"]);
+const ENVELOPE_FIELDS = new Set(["messages", "smb_message_echoes", "smb_app_state_sync"]);
 
 /** Status values that set a timestamp on the message; `sent` sets nothing. */
 const STATUS_FIELDS = {
@@ -133,7 +134,7 @@ async function projectEcho(ctx: MutationCtx, number: Doc<"numbers">, whatsapp: a
   for (const row of early) await ctx.db.delete(row._id);
 }
 
-/** Projects an envelope (`messages` or `smb_message_echoes`) for a known number. */
+/** Projects an envelope (`messages`, `smb_message_echoes` or `smb_app_state_sync`) for a known number. */
 async function projectEnvelope(ctx: MutationCtx, number: Doc<"numbers">, payload: any, now: number) {
   const whatsapp = payload.whatsapp;
   if (payload.field === "messages") {
@@ -141,6 +142,8 @@ async function projectEnvelope(ctx: MutationCtx, number: Doc<"numbers">, payload
     for (const status of list(whatsapp?.statuses)) await projectStatus(ctx, number, status, now);
   } else if (payload.field === "smb_message_echoes") {
     for (const echo of list(whatsapp?.message_echoes)) await projectEcho(ctx, number, whatsapp, echo, now);
+  } else if (payload.field === "smb_app_state_sync") {
+    await applyStateSync(ctx, number, whatsapp, now);
   }
 }
 
