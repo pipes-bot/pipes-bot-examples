@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
+import { contactByUserId, resolveContact } from "./contactLookup";
 import { closeConversation, recordMessage } from "./conversations";
 import {
   contactName,
@@ -14,7 +15,6 @@ import {
 
 type EventState = Doc<"events">["state"];
 type Outcome = "duplicate" | EventState;
-type Ids = { waId?: string; userId?: string };
 
 /** Envelope fields that are projected; any other field is ignored. */
 const ENVELOPE_FIELDS = new Set(["messages", "smb_message_echoes"]);
@@ -49,41 +49,6 @@ async function messageByWamid(ctx: MutationCtx, wamid: string) {
     .query("messages")
     .withIndex("by_wamid", (q) => q.eq("wamid", wamid))
     .first();
-}
-
-async function contactByUserId(ctx: MutationCtx, numberId: Id<"numbers">, userId: string) {
-  return ctx.db
-    .query("contacts")
-    .withIndex("by_number_user_id", (q) => q.eq("numberId", numberId).eq("userId", userId))
-    .first();
-}
-
-async function contactByWaId(ctx: MutationCtx, numberId: Id<"numbers">, waId: string) {
-  return ctx.db
-    .query("contacts")
-    .withIndex("by_number_wa_id", (q) => q.eq("numberId", numberId).eq("waId", waId))
-    .first();
-}
-
-/** Finds the contact by BSUID, then by phone; creates it or fills what was missing. */
-async function resolveContact(
-  ctx: MutationCtx,
-  numberId: Id<"numbers">,
-  ids: Ids,
-  name: string | undefined,
-): Promise<Id<"contacts"> | null> {
-  if (!ids.waId && !ids.userId) return null;
-  const contact =
-    (ids.userId ? await contactByUserId(ctx, numberId, ids.userId) : null) ??
-    (ids.waId ? await contactByWaId(ctx, numberId, ids.waId) : null);
-  if (!contact) return ctx.db.insert("contacts", { numberId, ...ids, ...(name ? { name } : {}) });
-
-  const patch: Partial<Doc<"contacts">> = {};
-  if (!contact.waId && ids.waId) patch.waId = ids.waId;
-  if (!contact.userId && ids.userId) patch.userId = ids.userId;
-  if (!contact.name && name) patch.name = name;
-  if (Object.keys(patch).length > 0) await ctx.db.patch(contact._id, patch);
-  return contact._id;
 }
 
 /** `system` messages report a phone number or BSUID change; they are not conversation messages. */
@@ -218,6 +183,26 @@ async function onboardNumber(
   } else {
     const id = await ctx.db.insert("numbers", { ...fields, poolNumberId, connectedAt: now });
     number = (await ctx.db.get(id))!;
+  }
+
+  // Record what the signup asked for, once: a repeated event never regresses a state that advanced.
+  const requested: Partial<Pick<Doc<"numbers">, "historyImport" | "contactsImport">> = {};
+  if (data?.importHistory === true && !number.historyImport) {
+    requested.historyImport = {
+      state: "requested",
+      progress: 0,
+      chunks: 0,
+      messages: 0,
+      conversations: 0,
+      updatedAt: now,
+    };
+  }
+  if (data?.importContacts === true && !number.contactsImport) {
+    requested.contactsImport = { state: "requested", updatedAt: now };
+  }
+  if (Object.keys(requested).length > 0) {
+    await ctx.db.patch(number._id, requested);
+    number = { ...number, ...requested };
   }
 
   // Replay what arrived before the number had a workspace, in arrival order.

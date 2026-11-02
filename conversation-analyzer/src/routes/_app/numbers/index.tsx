@@ -29,7 +29,7 @@ function Numbers() {
     setConnecting(true);
     setError(undefined);
     try {
-      const { url } = await createSignupLink();
+      const { url } = await createSignupLink({ importHistory: true, importContacts: true });
       window.location.href = url;
     } catch (e) {
       setError(errorMessage(e));

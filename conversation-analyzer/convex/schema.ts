@@ -50,6 +50,26 @@ export const healthValidator = v.object({
   detail: v.optional(v.string()),
 });
 
+export const historyImportValidator = v.object({
+  state: v.union(
+    v.literal("requested"),
+    v.literal("importing"),
+    v.literal("done"),
+    v.literal("declined"),
+  ),
+  progress: v.number(),
+  chunks: v.number(),
+  messages: v.number(),
+  conversations: v.number(),
+  updatedAt: v.number(),
+  buildJobId: v.optional(v.id("_scheduled_functions")),
+});
+
+export const contactsImportValidator = v.object({
+  state: v.union(v.literal("requested"), v.literal("received")),
+  updatedAt: v.number(),
+});
+
 export const sourceValidator = v.union(v.literal("customer"), v.literal("phone"), v.literal("api"));
 
 export default defineSchema({
@@ -68,6 +88,8 @@ export default defineSchema({
     connectedAt: v.number(),
     health: v.optional(healthValidator),
     isDemo: v.optional(v.boolean()),
+    historyImport: v.optional(historyImportValidator),
+    contactsImport: v.optional(contactsImportValidator),
   })
     .index("by_pool_number", ["poolNumberId"])
     .index("by_workspace", ["workspaceId"]),
@@ -77,6 +99,7 @@ export default defineSchema({
     kind: v.string(),
     poolNumberId: v.optional(v.string()),
     payload: v.any(),
+    storageId: v.optional(v.id("_storage")),
     state: v.union(v.literal("processed"), v.literal("parked"), v.literal("ignored")),
     receivedAt: v.number(),
   })
@@ -88,7 +111,11 @@ export default defineSchema({
     waId: v.optional(v.string()),
     userId: v.optional(v.string()),
     name: v.optional(v.string()),
+    bookName: v.optional(v.string()),
+    bookUpdatedAt: v.optional(v.number()),
+    bookRemovedAt: v.optional(v.number()),
   })
+    .index("by_number", ["numberId"])
     .index("by_number_wa_id", ["numberId", "waId"])
     .index("by_number_user_id", ["numberId", "userId"]),
 
@@ -106,12 +133,14 @@ export default defineSchema({
     closeJobId: v.optional(v.id("_scheduled_functions")),
     metrics: v.optional(metricsValidator),
     analysis: v.optional(analysisValidator),
+    imported: v.optional(v.literal(true)),
   })
     .index("by_contact_status", ["contactId", "status"])
     .index("by_workspace_closed_at", ["workspaceId", "closedAt"])
     .index("by_number_closed_at", ["numberId", "closedAt"])
     .index("by_number_status_activity", ["numberId", "status", "lastActivityAt"])
-    .index("by_workspace_status", ["workspaceId", "status"]),
+    .index("by_workspace_status", ["workspaceId", "status"])
+    .index("by_number_imported", ["numberId", "imported"]),
 
   messages: defineTable({
     conversationId: v.id("conversations"),
@@ -124,6 +153,7 @@ export default defineSchema({
     deliveredAt: v.optional(v.number()),
     readAt: v.optional(v.number()),
     failedAt: v.optional(v.number()),
+    imported: v.optional(v.literal(true)),
   })
     .index("by_wamid", ["wamid"])
     .index("by_conversation_sent_at", ["conversationId", "sentAt"]),
@@ -137,4 +167,18 @@ export default defineSchema({
   })
     .index("by_wamid", ["wamid"])
     .index("by_number_recipient", ["numberId", "recipient", "timestamp"]),
+
+  historyMessages: defineTable({
+    numberId: v.id("numbers"),
+    contactId: v.id("contacts"),
+    wamid: v.string(),
+    source: v.union(v.literal("customer"), v.literal("phone")),
+    type: v.string(),
+    text: v.optional(v.string()),
+    sentAt: v.number(),
+    pending: v.optional(v.literal(true)),
+  })
+    .index("by_wamid", ["wamid"])
+    .index("by_number_contact_sent_at", ["numberId", "contactId", "sentAt"])
+    .index("by_number_pending", ["numberId", "pending"]),
 });
