@@ -7,6 +7,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -21,12 +28,22 @@ export const Route = createFileRoute("/_app/numbers/")({
   component: Numbers,
 });
 
+const SIGNUP_LANGUAGES = [
+  { value: "auto", label: "Same as the browser" },
+  { value: "en", label: "English" },
+  { value: "es", label: "Español" },
+  { value: "pt-BR", label: "Português (Brasil)" },
+] as const;
+
+type SignupLanguage = (typeof SIGNUP_LANGUAGES)[number]["value"];
+
 function Numbers() {
   const numbers = useQuery(api.numbers.list);
   const createSignupLink = useAction(api.numbers.createSignupLink);
   const [panelOpen, setPanelOpen] = useState(false);
   const [importHistory, setImportHistory] = useState(true);
   const [importContacts, setImportContacts] = useState(true);
+  const [language, setLanguage] = useState<SignupLanguage>("auto");
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -34,7 +51,11 @@ function Numbers() {
     setConnecting(true);
     setError(undefined);
     try {
-      const { url } = await createSignupLink({ importHistory, importContacts });
+      const { url } = await createSignupLink({
+        importHistory,
+        importContacts,
+        locale: language === "auto" ? undefined : language,
+      });
       window.location.href = url;
     } catch (e) {
       setError(errorMessage(e));
@@ -52,6 +73,27 @@ function Numbers() {
       </div>
       {panelOpen && (
         <div className="space-y-3 rounded-lg border p-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="signup-language">Signup page language</Label>
+            <Select
+              value={language}
+              onValueChange={(value) => setLanguage(value as SignupLanguage)}
+            >
+              <SelectTrigger id="signup-language" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SIGNUP_LANGUAGES.map(({ value, label }) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              Meta's popup uses the language of your Facebook account.
+            </p>
+          </div>
           <div className="flex items-center gap-2">
             <input
               id="import-history"

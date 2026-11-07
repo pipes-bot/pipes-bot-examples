@@ -53,8 +53,13 @@ export const findByPoolNumberId = query({
 });
 
 export const createSignupLink = action({
-  args: { importHistory: v.boolean(), importContacts: v.boolean() },
-  handler: async (ctx, { importHistory, importContacts }): Promise<{ url: string }> => {
+  args: {
+    importHistory: v.boolean(),
+    importContacts: v.boolean(),
+    // Forces the signup page language. Left out, the page follows the browser.
+    locale: v.optional(v.union(v.literal("en"), v.literal("es"), v.literal("pt-BR"))),
+  },
+  handler: async (ctx, { importHistory, importContacts, locale }): Promise<{ url: string }> => {
     const ownerId = (await ctx.auth.getUserIdentity())?.subject;
     if (!ownerId) throw new ConvexError("Not signed in");
     const workspace = await ctx.runQuery(internal.workspaces.byOwner, { ownerId });
@@ -72,6 +77,7 @@ export const createSignupLink = action({
         metadata: { workspaceId: workspace._id },
         importHistory,
         importContacts,
+        locale,
       }),
     });
     if (!response.ok) {

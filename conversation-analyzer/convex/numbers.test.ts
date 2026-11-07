@@ -88,6 +88,52 @@ describe("createSignupLink", () => {
     expect(body.redirectUrl).toBeDefined();
   });
 
+  it("sends the chosen signup page language", async () => {
+    const t = makeT();
+    await seed(t, "user_a");
+    const fetchMock = vi.fn(async () => jsonResponse({ token: "jwt.abc" }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await t.withIdentity({ subject: "user_a" }).action(api.numbers.createSignupLink, {
+      importHistory: true,
+      importContacts: false,
+      locale: "pt-BR",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string).locale).toBe("pt-BR");
+  });
+
+  it("leaves the language to the browser when none is chosen", async () => {
+    const t = makeT();
+    await seed(t, "user_a");
+    const fetchMock = vi.fn(async () => jsonResponse({ token: "jwt.abc" }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await t
+      .withIdentity({ subject: "user_a" })
+      .action(api.numbers.createSignupLink, { importHistory: true, importContacts: false });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).not.toHaveProperty("locale");
+  });
+
+  it("rejects a language pipes.bot does not offer", async () => {
+    const t = makeT();
+    await seed(t, "user_a");
+    const fetchMock = vi.fn(async () => jsonResponse({ token: "jwt.abc" }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      t.withIdentity({ subject: "user_a" }).action(api.numbers.createSignupLink, {
+        importHistory: true,
+        importContacts: false,
+        locale: "fr" as "en",
+      }),
+    ).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("surfaces API errors", async () => {
     const t = makeT();
     await seed(t, "user_a");

@@ -28,7 +28,7 @@ Stack: TanStack Router (static SPA built with Vite), Convex (HTTP actions, react
 
 - Webhooks with Standard Webhooks signatures (`POST /webhooks/pipes`)
 - BYON API v2 events: `number.onboarded`, `messages`, `smb_message_echoes`, message statuses, `history`, `smb_app_state_sync`
-- Embedded signup: `POST /v1/apps/token` with `metadata.workspaceId`, `importHistory` and `importContacts`
+- Embedded signup: `POST /v1/apps/token` with `metadata.workspaceId`, `importHistory`, `importContacts` and `locale`
 - Chat history import: `history` events, and the `importHistory` / `importContacts` flags in `number.onboarded`
 - Contacts sync: `smb_app_state_sync` events with the phone's address book
 - Coexistence echoes: replies sent from the phone
@@ -163,7 +163,7 @@ pipes.bot --POST /webhooks/pipes--> httpAction (verify signature)
 
 The raw payload is stored in `events` (deduplicated by webhook id) and then projected into numbers, contacts, conversations, messages and statuses, all in one transaction. A failure returns 500 so pipes.bot retries.
 
-**Signup and ownership.** `createSignupLink` calls `POST /v1/apps/token` with `metadata.workspaceId` and `redirectUrl = ${SITE_URL}/numbers/connected`, and sends the user to the pipes.bot signup page. The token is valid for 15 minutes and is single use. When `number.onboarded` arrives, its `metadata.workspaceId` ties the number to the workspace. `/numbers/connected` shows troubleshooting if the number has not appeared after 3 minutes.
+**Signup and ownership.** `createSignupLink` calls `POST /v1/apps/token` with `metadata.workspaceId` and `redirectUrl = ${SITE_URL}/numbers/connected`, and sends the user to the pipes.bot signup page. The token is valid for 15 minutes and is single use. The **Signup page language** selector in the **Connect a number** panel sets `locale` (`en`, `es` or `pt-BR`). With **Same as the browser**, the default, `locale` is left out and the page follows the browser's languages, then English. Meta's popup uses the language of the customer's Facebook account either way. When `number.onboarded` arrives, its `metadata.workspaceId` ties the number to the workspace. `/numbers/connected` shows troubleshooting if the number has not appeared after 3 minutes.
 
 **Parking and replay.** Events for a number the app does not know yet are parked. They are replayed when `number.onboarded` arrives, so nothing is lost if messages beat the onboarding event. If a number moves to another workspace, its open conversations are closed in the old one.
 
@@ -214,7 +214,7 @@ The public pipes.bot docs page on coexistence (`byon/coexistence`) still says pi
 
 ### The flow
 
-1. On **Numbers**, **Connect a number** opens a panel with two checkboxes, both checked: **Import chat history (up to 6 months)** and **Import contacts**. `createSignupLink` sends them as `importHistory` and `importContacts` in `POST /v1/apps/token`. They override the App's own switch, in both directions.
+1. On **Numbers**, **Connect a number** opens a panel with the signup page language and two checkboxes, both checked: **Import chat history (up to 6 months)** and **Import contacts**. `createSignupLink` sends them as `importHistory` and `importContacts` in `POST /v1/apps/token`. They override the App's own switch, in both directions.
 2. `number.onboarded` carries `data.importHistory` and `data.importContacts`. The number gets `historyImport` (`requested`, `importing`, `done`, `declined`) and `contactsImport` (`requested`, `received`). A repeated `number.onboarded` never moves a state backwards.
 3. The phone asks the business whether to share the history. Only the phone decides. A refusal arrives as one event with error code `2593109` and the state becomes `declined`.
 4. History chunks arrive as `history` events, out of order, with up to thousands of messages each. `POST /webhooks/pipes` stores the raw body in Convex file storage and does not send it through `ingest`. `history.receive` deduplicates it, parks it if the number is unknown yet, and updates the progress. `history.processChunk` (an action) reads the blob and `history.stage` writes the messages to `historyMessages` in batches of 500.
