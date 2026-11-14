@@ -10,6 +10,7 @@ export type SendError =
   | "not_configured"
   | "timeout"
   | "network_error"
+  | "invalid_template"
   | (string & {}); // any other API code, e.g. "meta_131026"
 
 export type SendResult = {
@@ -24,16 +25,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-/** Maps a failed pipes.bot send response to a SendError code. */
+/**
+ * Maps a failed pipes.bot send response to a SendError code. pipes.bot sends
+ * `{ error: { code, message } }`; a top-level `code` is also accepted. On BYON
+ * numbers a closed window is Meta `131047`; `SERVICE_WINDOW_EXPIRED` is the
+ * sandbox code, kept for safety.
+ */
 export function parseSendFailure(status: number, body: unknown): SendError {
-  const code = isRecord(body) ? body.code : undefined;
+  const nested = isRecord(body) && isRecord(body.error) ? body.error.code : undefined;
+  if (typeof nested === "number") {
+    return nested === META_WINDOW_CLOSED ? "window_closed" : `meta_${nested}`;
+  }
+  const topCode = isRecord(body) ? body.code : undefined;
+  const code =
+    typeof topCode === "string" && topCode.length > 0
+      ? topCode
+      : typeof nested === "string" && nested.length > 0
+        ? nested
+        : undefined;
   if (code === "SERVICE_WINDOW_EXPIRED") return "window_closed";
   if (code === "RATE_LIMITED" || status === 429) return "rate_limited";
-  const metaCode = isRecord(body) && isRecord(body.error) ? body.error.code : undefined;
-  if (typeof metaCode === "number") {
-    return metaCode === META_WINDOW_CLOSED ? "window_closed" : `meta_${metaCode}`;
-  }
-  if (typeof code === "string" && code.length > 0) return code.toLowerCase();
+  if (code !== undefined) return code.toLowerCase();
   return `http_${status}`;
 }
 
@@ -64,6 +76,14 @@ export function sendErrorMessage(error: SendError): string {
       return "Message must be 1–4096 characters.";
     case "no_recipient":
       return "This contact has no phone number or WhatsApp user ID.";
+    case "invalid_template":
+      return "Invalid template: name must be lowercase letters, digits and underscores, the language a code like en_US, and up to 20 body parameters of 1–1024 characters without newlines, tabs or more than 4 spaces in a row.";
+    case "meta_132001":
+      return "This template does not exist in this language for the number's WhatsApp Business Account.";
+    case "meta_132000":
+      return "The number of template parameters does not match the template.";
+    case "meta_132015":
+      return "This template is paused in Meta because of low quality.";
     default:
       return `Sending failed (${error}).`;
   }

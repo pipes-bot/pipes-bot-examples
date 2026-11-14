@@ -22,6 +22,12 @@ describe("parseSendFailure", () => {
     expect(parseSendFailure(429, {})).toBe("rate_limited");
     expect(parseSendFailure(400, { code: "RATE_LIMITED" })).toBe("rate_limited");
   });
+  test("nested string codes, as pipes.bot sends them", () => {
+    expect(parseSendFailure(429, { error: { code: "RATE_LIMITED", message: "Rate limit exceeded" } })).toBe("rate_limited");
+    expect(parseSendFailure(409, { error: { code: "REGISTRATION_PENDING", message: "x" } })).toBe("registration_pending");
+    expect(parseSendFailure(500, { error: { code: "NO_CREDENTIALS", message: "x" } })).toBe("no_credentials");
+    expect(parseSendFailure(400, { error: { code: 132001, message: "Template name does not exist" } })).toBe("meta_132001");
+  });
   test("falls back to the status", () => {
     expect(parseSendFailure(502, "oops")).toBe("http_502");
     expect(parseSendFailure(500, null)).toBe("http_500");
@@ -45,6 +51,12 @@ describe("sendErrorMessage", () => {
     expect(sendErrorMessage("window_closed")).toContain("24-hour window is closed");
     expect(sendErrorMessage("invalid_text")).toBe("Message must be 1–4096 characters.");
     expect(sendErrorMessage("meta_131026")).toBe("Sending failed (meta_131026).");
+  });
+  test("template errors", () => {
+    expect(sendErrorMessage("invalid_template")).toContain("template");
+    expect(sendErrorMessage("meta_132001")).toContain("does not exist");
+    expect(sendErrorMessage("meta_132000")).toContain("parameters");
+    expect(sendErrorMessage("meta_132015")).toContain("paused");
   });
   test("timeouts and network errors both warn about a possible double send", () => {
     expect(sendErrorMessage("timeout")).toContain("may or may not have been sent");

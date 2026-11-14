@@ -15,7 +15,8 @@
  *
  * Set SMOKE_KEEP=1 to skip step 10 and keep the smoke user and its consent: the script seeds the
  * demo data (demo.seed), checks that `pipeline_summary` over /mcp shows the demo counts (so the
- * signed-in user and the MCP principal share one workspace), and prints the access token and the
+ * signed-in user and the MCP principal share one workspace), checks that `search_messages` finds
+ * the demo message about a "grinder", and prints the access token and the
  * user's Convex session JWT for manual checks (send_message, workspaces.update, convex data).
  *
  * Steps (each prints `ok <step>`, or prints the response and exits 1):
@@ -347,6 +348,17 @@ async function main() {
       await fail("pipeline summary", null, `expected ${JSON.stringify(expected)}, got ${JSON.stringify(counts)}`);
     }
     ok("pipeline summary");
+    const search = await fetch(`${SITE}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(latestAccessToken),
+      body: rpc(4, "tools/call", { name: "search_messages", arguments: { query: "grinder" } }),
+    });
+    await expectStatus("search messages", search, 200);
+    const found = await mcpResult<{ messages?: unknown[] }>("search messages", search);
+    if (found.isError || !found.structuredContent?.messages?.length) {
+      await fail("search messages", null, `expected at least one hit for "grinder", got ${JSON.stringify(found)}`);
+    }
+    ok("search messages");
     console.log(`ACCESS_TOKEN=${latestAccessToken}`);
     console.log(`CONVEX_JWT=${sessionJwt}`);
     return;

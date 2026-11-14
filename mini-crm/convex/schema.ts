@@ -24,6 +24,12 @@ export const healthValidator = v.object({
   detail: v.optional(v.string()),
 });
 
+export const templateValidator = v.object({
+  name: v.string(),
+  language: v.string(),
+  bodyParams: v.array(v.string()),
+});
+
 // `queued` is the wait after a 429 from the API.
 export const messageStatusValidator = v.union(
   v.literal("pending"),
@@ -116,6 +122,7 @@ export default defineSchema({
     clientName: v.optional(v.string()),
     type: v.string(),
     text: v.optional(v.string()),
+    template: v.optional(templateValidator),
     status: messageStatusValidator,
     error: v.optional(v.string()),
     attempt: v.optional(v.number()),
@@ -125,7 +132,8 @@ export default defineSchema({
   })
     .index("by_wamid", ["wamid"])
     .index("by_contact_sent_at", ["contactId", "sentAt"])
-    .index("by_number", ["numberId"]),
+    .index("by_number", ["numberId"])
+    .searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "contactId"] }),
 
   notes: defineTable({
     workspaceId: v.id("workspaces"),

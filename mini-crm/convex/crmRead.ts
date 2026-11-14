@@ -260,6 +260,51 @@ export async function conversation(
   };
 }
 
+export type MessageHit = {
+  id: Id<"messages">;
+  contactId: Id<"contacts">;
+  contact: string;
+  from: string;
+  text: string;
+  type: string;
+  sentAt: number;
+};
+
+/** Full-text search over message bodies, best match first. Each contact is loaded once. */
+export async function searchMessages(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  opts: { query: string; contactId?: Id<"contacts">; limit: number },
+): Promise<MessageHit[]> {
+  const { query, contactId, limit } = opts;
+  const messages = await ctx.db
+    .query("messages")
+    .withSearchIndex("search_text", (q) => {
+      const base = q.search("text", query).eq("workspaceId", workspaceId);
+      return contactId !== undefined ? base.eq("contactId", contactId) : base;
+    })
+    .take(limit);
+  const ids = [...new Set(messages.map((message) => message.contactId))];
+  const contacts = new Map(
+    await Promise.all(ids.map(async (id) => [id, await ctx.db.get(id)] as const)),
+  );
+  return messages.flatMap((message) => {
+    const contact = contacts.get(message.contactId);
+    if (!contact) return [];
+    return [
+      {
+        id: message._id,
+        contactId: message.contactId,
+        contact: contact.name ?? contact.waId ?? contact.userId ?? "(unknown)",
+        from: fromLabel(message),
+        text: message.text ?? "",
+        type: message.type,
+        sentAt: message.sentAt,
+      },
+    ];
+  });
+}
+
 /**
  * Contacts whose last message is theirs. Those that can still get a reply (window open) come first,
  * longest wait first; then the closed-window ones, most recent first. Reads the 1000 most recent

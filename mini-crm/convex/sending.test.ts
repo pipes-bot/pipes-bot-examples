@@ -7,10 +7,11 @@ import {
   seedUser,
   type TestConvex,
 } from "../tests/helpers";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 
 const SEND_URL = "https://api.pipes.bot/v1/messages/app/send";
+const PASSTHROUGH_URL = "https://api.pipes.bot/v1/messages/passthrough";
 
 function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
@@ -427,5 +428,236 @@ describe("retry", () => {
       other.action(api.sending.retry, { messageId: failed.messageId! }),
     ).rejects.toThrow(/Not found/);
     expect(await messagesOf(t, contactId)).toHaveLength(1);
+  });
+});
+
+describe("templates", () => {
+  const tpl = { name: "order_update", language: "en_US", bodyParams: ["Ana"] };
+  const tplOk = (id = "wamid.T") => () =>
+    jsonResponse({ messaging_product: "whatsapp", contacts: [], messages: [{ id }] });
+
+  it("sends a template through the passthrough with the window closed", async () => {
+    const { t, workspaceId, contactId } = await seed({ lastInboundAt: Date.now() - 48 * HOUR });
+    const fetchMock = stubFetch(tplOk());
+
+    const result = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: tpl,
+      clientName: "Claude",
+    });
+
+    expect(result.status).toBe("sent");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(PASSTHROUGH_URL);
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer pk_smoke_test_key",
+    );
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      type: "template",
+      to: "5511900000000",
+      poolNumberId: "pn_1",
+    });
+    const [message] = await messagesOf(t, contactId);
+    expect(message).toMatchObject({
+      type: "template",
+      text: "[template order_update] Ana",
+      wamid: "wamid.T",
+      status: "sent",
+      source: "mcp",
+      clientName: "Claude",
+      template: { ...tpl },
+    });
+  });
+
+  it("sends to the BSUID in `recipient` when the contact has no phone", async () => {
+    const { t, workspaceId, contactId } = await seed({ waId: undefined, userId: "US.1" });
+    const fetchMock = stubFetch(tplOk());
+
+    const result = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: tpl,
+    });
+
+    expect(result.status).toBe("sent");
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.recipient).toBe("US.1");
+    expect(body).not.toHaveProperty("to");
+  });
+
+  it("allows a contact who never wrote", async () => {
+    const { t, workspaceId, contactId } = await seed({ lastInboundAt: undefined });
+    stubFetch(tplOk());
+
+    const result = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: tpl,
+    });
+
+    expect(result.status).toBe("sent");
+  });
+
+  it("sends a long valid template whose text exceeds the text limit", async () => {
+    const { t, workspaceId, contactId } = await seed();
+    const fetchMock = stubFetch(tplOk());
+
+    const result = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: { ...tpl, bodyParams: Array.from({ length: 5 }, () => "x".repeat(1000)) },
+    });
+
+    expect(result.status).toBe("sent");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe(PASSTHROUGH_URL);
+  });
+
+  it("refuses a blocked number without writing", async () => {
+    const { t, workspaceId, contactId } = await seed(
+      {},
+      { health: { state: "unhealthy", canSendMessage: "BLOCKED", checkedAt: 0 } },
+    );
+    const fetchMock = stubFetch(tplOk());
+
+    const result = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: tpl,
+    });
+
+    expect(result).toEqual({ status: "failed", error: "number_blocked" });
+    expect(await messagesOf(t, contactId)).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an invalid template without writing", async () => {
+    const { t, workspaceId, contactId } = await seed();
+    const fetchMock = stubFetch(tplOk());
+
+    const result = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: { ...tpl, name: "Bad Name" },
+    });
+
+    expect(result).toEqual({ status: "failed", error: "invalid_template" });
+    expect(await messagesOf(t, contactId)).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("demo number never calls fetch", async () => {
+    const { t, workspaceId, contactId } = await seed({}, { isDemo: true });
+    const fetchMock = stubFetch(tplOk());
+
+    const result = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: tpl,
+    });
+
+    expect(result.status).toBe("sent");
+    const [message] = await messagesOf(t, contactId);
+    expect(message.wamid).toMatch(/^wamid\.demo_/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("429 queues, then the scheduled retry posts to the passthrough again", async () => {
+    vi.useFakeTimers();
+    const { t, workspaceId, contactId } = await seed();
+    const reset = String(Math.floor(Date.now() / 1000) + 5);
+    const fetchMock = stubFetch(
+      () =>
+        jsonResponse({ error: "Too many", code: "RATE_LIMITED" }, 429, {
+          "X-RateLimit-Reset": reset,
+        }),
+      tplOk("wamid.Y"),
+    );
+
+    const result = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: tpl,
+    });
+    expect(result.status).toBe("queued");
+
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const [message] = await messagesOf(t, contactId);
+    expect(message).toMatchObject({ status: "sent", wamid: "wamid.Y", attempt: 2 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([PASSTHROUGH_URL, PASSTHROUGH_URL]);
+  });
+
+  it("timeout fails without another call", async () => {
+    const { t, workspaceId, contactId } = await seed();
+    const fetchMock = vi.fn(async () => {
+      throw new DOMException("", "TimeoutError");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: tpl,
+    });
+
+    expect(result).toMatchObject({ status: "failed", error: "timeout" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await scheduled(t)).toHaveLength(0);
+  });
+
+  it("2xx without messages[0].id is a failure", async () => {
+    const { t, workspaceId, contactId } = await seed();
+    stubFetch(() => jsonResponse({}));
+
+    const result = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: tpl,
+    });
+
+    expect(result).toMatchObject({ status: "failed", error: "http_200" });
+  });
+
+  it("a later failed status keeps the error and Retry is refused", async () => {
+    const { t, workspaceId, asUser, contactId } = await seed();
+    stubFetch(tplOk("wamid.T"));
+    const sent = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: tpl,
+    });
+
+    await t.mutation(internal.ingest.ingest, {
+      webhookId: "wh_tpl_failed",
+      payload: {
+        id: "evt_x",
+        field: "messages",
+        createdAt: new Date().toISOString(),
+        pipes: { appId: "app_1", poolNumberId: "pn_1", media: {} },
+        whatsapp: {
+          messaging_product: "whatsapp",
+          metadata: { display_phone_number: "15550001111", phone_number_id: "106540352242922" },
+          statuses: [
+            {
+              id: "wamid.T",
+              status: "failed",
+              timestamp: String(Math.floor(Date.now() / 1000)),
+              recipient_id: "5511900000000",
+              errors: [{ code: 132001, title: "x" }],
+            },
+          ],
+        },
+      },
+    });
+
+    const [message] = await messagesOf(t, contactId);
+    expect(message.status).toBe("failed");
+    expect(message.error).toBeTruthy();
+    await expect(
+      asUser.action(api.sending.retry, { messageId: sent.messageId! }),
+    ).rejects.toThrow(/can't be retried/);
   });
 });

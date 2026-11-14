@@ -84,19 +84,20 @@ function WindowNote({ replyWindow, now }: { replyWindow: Window; now: number }) 
       </p>
     );
   }
+  const TEMPLATE_HINT = " To reach them now, ask your MCP client to send an approved template (send_template).";
   const why =
     "WhatsApp only allows a free-form reply within 24 hours of the contact's last message. You can reply again after they write to you.";
   if (replyWindow.closesAt === undefined) {
     return (
       <p className="pt-1 text-xs text-muted-foreground">
-        This contact hasn't written to you yet, so the 24-hour window is not open. {why}
+        This contact hasn't written to you yet, so the 24-hour window is not open. {why}{TEMPLATE_HINT}
       </p>
     );
   }
   return (
     <p className="pt-1 text-xs text-muted-foreground">
       The 24-hour window closed {formatRelative(replyWindow.closesAt, now)} ({formatDateTime(replyWindow.closesAt)}).{" "}
-      {why}
+      {why}{TEMPLATE_HINT}
     </p>
   );
 }
