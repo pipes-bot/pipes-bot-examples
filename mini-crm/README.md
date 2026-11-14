@@ -241,14 +241,14 @@ Messages from your contacts are third-party text, and an AI assistant that reads
 
 1. **No arbitrary recipients.** `send_message` only takes the `contactId` of an existing contact in your workspace, never a phone number. There is no tool to create contacts or delete data.
 2. **Untrusted content is labeled.** `get_conversation` returns an explicit `from` per message, and the tool descriptions tell the model that message text, names and notes come from third parties and are not instructions. This lowers the risk. It does not remove it.
-3. **Draft mode by default.** `send_message` creates a draft and nothing leaves until you approve it in the inbox, where you can edit the text. **Settings** explains the risk of switching to direct sending.
+3. **Draft mode by default.** `send_message` creates a draft and nothing leaves until you approve it in the inbox, where you can edit the text. **Settings** explains the risk of switching to direct sending. `send_template` is the exception: it always sends immediately, even in draft mode, but only an approved Meta template with body text parameters, to an existing contact (never an arbitrary number). It can go out when the 24-hour window is closed.
 4. **Audit and revoke.** Every MCP action is recorded as an activity with the client's name, and **Settings** lists the connected apps with **Revoke**, which takes effect on the next call.
 
 Also:
 
-- Scopes are enforced: a token with only `crm:read` does not see `update_contact`, `add_note` or `send_message`.
+- Scopes are enforced: a token with only `crm:read` does not see `update_contact`, `add_note`, `send_message` or `send_template`.
 - Approving a draft claims it first, so a double click, two tabs or a retry send exactly one message. The second attempt gets "Draft is no longer pending".
-- Messages are only free-form text within the 24-hour window (below), which also limits what a misled client can do in direct mode.
+- Free-form text is limited to the 24-hour window (below). Outside it a client can only send pre-approved templates. A misled client with `crm:write` can still send an approved template to any existing contact, so use `crm:read` only if you don't want that.
 
 ## Sending rules
 
@@ -257,7 +257,7 @@ Also:
 - **Rate limit.** The limit is 60 requests per minute per API key, shared by every number in the App. On `429` the message is not sent, so it is safe to retry: it waits for `X-RateLimit-Reset` and retries, up to 3 attempts in total, then ends as `failed` with `rate_limited`.
 - **Timeouts and network errors are never retried.** A timeout (30 s) or a network error leaves it unknown whether the message went out, and retrying could send it twice. The message ends as `failed` and the inbox shows **Retry**, which creates a new send when you choose.
 - **Text only**, 1-4096 characters.
-- **Templates.** `send_template` sends an approved template directly, never as a draft, because the point is to reach a contact whose window is closed. Only body text parameters are supported (at most 20, each 1-1024 characters). The template name is lowercase letters, digits and underscores, and the language code looks like `en` or `pt_BR`. Template errors such as `132000` (parameter count), `132001` (template not found in that language) and `132015` (template paused or disabled), and `invalid_template`, come back with a readable message. In the inbox a template message has a **Template** badge and no **Retry**, and the composer points at `send_template` when the window is closed.
+- **Templates.** `send_template` sends an approved template directly, never as a draft, because the point is to reach a contact whose window is closed. Only body text parameters are supported (at most 20, each 1-1024 characters). The template name is lowercase letters, digits and underscores, and the language code looks like `en` or `pt_BR`. Template errors such as `132000` (parameter count), `132001` (template not found in that language) and `132015` (template paused), and `invalid_template` (no newlines, tabs or more than 4 spaces in a row in a parameter), come back with a readable message. In the inbox a template message has a **Template** badge and no **Retry**, and the composer points at `send_template` when the window is closed.
 
 ## Deploy
 
