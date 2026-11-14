@@ -23,7 +23,7 @@ function sourceLabel(message: ConversationMessage): string {
 }
 
 function body(message: ConversationMessage): string {
-  if (message.type === "text" || message.type === "template") return message.text ?? "";
+  if (message.type === "text" || (message.type === "template" && message.text)) return message.text ?? "";
   return message.text ? `[${message.type}] ${message.text}` : `[${message.type}]`;
 }
 
