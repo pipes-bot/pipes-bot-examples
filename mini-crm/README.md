@@ -1,9 +1,9 @@
 ---
 title: Mini CRM with MCP
-description: A WhatsApp CRM with a pipeline, an inbox and a built-in MCP server so Claude can read contacts, update the pipeline and draft replies
+description: A WhatsApp CRM with a pipeline, an inbox and a built-in MCP server so Claude can read contacts, search the message history, update the pipeline, draft replies and send approved templates
 type: app
 stack: [tanstack-router, convex, better-auth, mcp, typescript]
-features: [webhooks, byon-v2, embedded-signup, coexistence, echoes, mcp]
+features: [webhooks, byon-v2, embedded-signup, coexistence, echoes, mcp, templates]
 ---
 
 # Mini CRM with MCP
@@ -14,12 +14,27 @@ A small WhatsApp CRM on pipes.bot (BYON API v2) that you can also operate from a
 
 - A pipeline of contacts in four fixed stages: `lead`, `qualified`, `customer`, `lost`. Drag a card between columns, or use **Move to…** on the card.
 - A shared inbox with the full conversation, replies from the app, and a clear explanation when the 24-hour window is closed.
-- A built-in MCP server (`POST /mcp`) with eight tools. The app itself never calls an AI model: the AI lives in the MCP client, the app only exposes tools, authenticates and keeps an audit trail.
+- A built-in MCP server (`POST /mcp`) with ten tools. The app itself never calls an AI model: the AI lives in the MCP client, the app only exposes tools, authenticates and keeps an audit trail.
 - OAuth 2.1 for the MCP server (dynamic client registration, PKCE, consent screen, revoke), built on the Better Auth OAuth provider.
 - Draft mode: by default a message written by Claude waits in the inbox for you to edit and send. Switch to direct sending in **Settings**.
+- Approved WhatsApp templates: `send_template` sends one directly, also when the 24-hour window is closed.
 - A demo seed with about a dozen contacts, so you can see all of it without a phone number.
 
 Stack: TanStack Router (static SPA built with Vite), Convex (HTTP actions, reactive queries, scheduler, crons), Better Auth (local Convex component with `@better-auth/oauth-provider`), the official MCP TypeScript SDK, Tailwind v4 and shadcn/ui.
+
+## Memory: pipes.bot stores nothing on API v2
+
+pipes.bot keeps no conversation history on API v2 and has no history API. This app stores every webhook and every message it sends in your Convex deployment, and that is what `get_conversation` and `search_messages` read. With anonymous local Convex the data stays on your machine. A cloud deployment (needed for real webhooks and hosted MCP clients) keeps it in your Convex deployment: not on pipes.bot, and not only on your laptop.
+
+The [Claude WhatsApp plugin](https://github.com/pipes-bot/claude-plugins/tree/main/plugins/whatsapp) also lets Claude talk to WhatsApp, but it works differently:
+
+| | mini-crm | Claude WhatsApp plugin |
+| --- | --- | --- |
+| Store | Your Convex deployment, every webhook and send | None |
+| History tools | `get_conversation`, `search_messages` | None: Claude only sees messages as they arrive |
+| Transport | HTTP MCP server with OAuth | A live channel inside Claude Code |
+| Clients | Any MCP client that supports OAuth (see Verification status) | Claude Code |
+| Use it when | You want a CRM, a searchable history and Claude working across contacts | You want to chat with Claude from your phone |
 
 ## pipes.bot features used
 
@@ -28,6 +43,7 @@ Stack: TanStack Router (static SPA built with Vite), Convex (HTTP actions, react
 - Embedded signup: `POST /v1/apps/token` with `metadata.workspaceId`
 - Coexistence echoes: replies sent from the phone
 - Sending text: `POST /v1/messages/app/send`
+- Sending an approved template: `POST /v1/messages/passthrough`
 - Number health: `GET /v1/pool-numbers/{id}/health`
 
 ## How it works
@@ -76,11 +92,13 @@ The raw event is stored (deduplicated by webhook id) and projected into numbers,
 | `search_contacts` | `crm:read` | Search by name or phone (or BSUID), stage or tag; message text is not searched (limit 20, max 50) |
 | `get_contact` | `crm:read` | A contact with up to 20 notes and 20 recent activities |
 | `get_conversation` | `crm:read` | Messages, oldest first, with an explicit `from` (limit 30, max 100, paged with the `nextBefore` cursor) |
+| `search_messages` | `crm:read` | Full-text search over the stored message text of every contact, best match first, optionally for one contact (limit 20, max 50) |
 | `list_unanswered` | `crm:read` | Contacts waiting for a reply: open window first, longest wait first, then closed-window ones (limit 20, max 50) |
 | `pipeline_summary` | `crm:read` | Count per stage and the last 10 stage changes |
 | `update_contact` | `crm:write` | Stage, name, add or remove tags |
 | `add_note` | `crm:write` | An internal note (1-2000 chars), never sent to the contact |
 | `send_message` | `crm:write` | A text reply: a draft in draft mode, an immediate send in direct mode |
+| `send_template` | `crm:write` | An approved template with body text parameters. Always sent directly, never a draft, even in draft mode, and it works when the 24-hour window is closed |
 
 Tools a token has no scope for are not listed. Input is validated with zod, and business errors (`window_closed`, `number_blocked`, a contact that does not exist or belongs to another workspace) come back as a tool result with `isError: true`, not as a protocol error. Many clients only show the model `content`, so the text of each result is a one-line summary (with every contact id) followed by the same data as `structuredContent`, as a JSON block marked as data written by contacts, never instructions. Every change made through MCP is recorded as an activity with the client's name (trimmed to 60 characters; a client named `you` or `system`, or with no name, is shown as `MCP`).
 
@@ -92,7 +110,7 @@ Tools a token has no scope for are not listed. Input is validated with zod, and 
 4. Copy the `whsec_` secret and the `ak_` key into `PIPES_WEBHOOK_SECRET` and `PIPES_API_KEY`, and the App slug into `PIPES_APP_SLUG` (see below).
 5. Sign up in the app, open **Numbers**, and click **Connect a number**.
 
-Sending is plain text through `POST /v1/messages/app/send`, with `to` set to the contact's phone number or BSUID.
+Text is sent through `POST /v1/messages/app/send`, with `to` set to the contact's phone number or BSUID. Templates go through `POST /v1/messages/passthrough`: `to` is the contact's phone number, or `recipient` is the BSUID when there is no phone number.
 
 ## Run locally
 
@@ -152,7 +170,7 @@ pnpm dev
 ### Checks
 
 ```bash
-pnpm test        # Vitest + convex-test, 187 tests, no backend needed
+pnpm test        # Vitest + convex-test, 237 tests, no backend needed
 pnpm typecheck   # app, Convex functions and config
 pnpm build       # static bundle in dist/
 ```
@@ -215,7 +233,7 @@ Because of 6, versions are pinned exactly: `better-auth@1.6.33`, `@better-auth/o
 
 ### OAuth smoke test
 
-`pnpm smoke:oauth` runs the whole flow against a local anonymous Convex backend, with the browser half simulated by requests that carry the `Better-Auth-Cookie` header: discovery, client registration, sign-up, authorize with PKCE, consent, JWT token exchange, `/mcp` `initialize` and `tools/list`, refresh rotation, a reused refresh token rejected, and revoke followed by a 401 on a token that has not expired. Start `CONVEX_AGENT_MODE=anonymous pnpm exec convex dev` and set `SITE_URL` and `BETTER_AUTH_SECRET` first. It runs `.ts` directly with Node, so it needs Node 22.18 or newer (built-in TypeScript type stripping). It is not part of CI because it needs the local backend. With `SMOKE_KEEP=1` it skips the revoke step, seeds the demo data as the smoke user, checks that `pipeline_summary` over `/mcp` shows 5/3/2/2 (the signed-in user and the MCP client share one workspace), and prints the access token and the user's Convex JWT for manual calls.
+`pnpm smoke:oauth` runs the whole flow against a local anonymous Convex backend, with the browser half simulated by requests that carry the `Better-Auth-Cookie` header: discovery, client registration, sign-up, authorize with PKCE, consent, JWT token exchange, `/mcp` `initialize` and `tools/list`, refresh rotation, a reused refresh token rejected, and revoke followed by a 401 on a token that has not expired. Start `CONVEX_AGENT_MODE=anonymous pnpm exec convex dev` and set `SITE_URL` and `BETTER_AUTH_SECRET` first. It runs `.ts` directly with Node, so it needs Node 22.18 or newer (built-in TypeScript type stripping). It is not part of CI because it needs the local backend. With `SMOKE_KEEP=1` it skips the revoke step, seeds the demo data as the smoke user, checks that `pipeline_summary` over `/mcp` shows 5/3/2/2 and that `search_messages` finds "grinder" (the signed-in user and the MCP client share one workspace), and prints the access token and the user's Convex JWT for manual calls.
 
 ## Security
 
@@ -234,11 +252,12 @@ Also:
 
 ## Sending rules
 
-- **24-hour window.** A free-form text can be sent only within 24 hours of the contact's last message. The window is open when `lastInboundAt` is set and less than 24 hours old; echoes from the phone don't count. The app refuses earlier and doesn't call the API, and if the API still answers `SERVICE_WINDOW_EXPIRED` (Meta error 131047) the message ends as `failed` with `window_closed`. A draft whose window closed can only be discarded.
+- **24-hour window.** A free-form text can be sent only within 24 hours of the contact's last message. The window is open when `lastInboundAt` is set and less than 24 hours old; echoes from the phone don't count. The app refuses earlier and doesn't call the API, and on BYON numbers Meta's refusal is `131047`, either immediately or as a later `failed` status. Both end the message as `failed` with `window_closed`. (`SERVICE_WINDOW_EXPIRED` is the sandbox code and is mapped the same way.) A draft whose window closed can only be discarded.
 - **Blocked numbers.** A number whose health check reports `BLOCKED` refuses sends and drafts without writing anything. A `LIMITED` number still sends; the Numbers page shows it as unhealthy.
 - **Rate limit.** The limit is 60 requests per minute per API key, shared by every number in the App. On `429` the message is not sent, so it is safe to retry: it waits for `X-RateLimit-Reset` and retries, up to 3 attempts in total, then ends as `failed` with `rate_limited`.
 - **Timeouts and network errors are never retried.** A timeout (30 s) or a network error leaves it unknown whether the message went out, and retrying could send it twice. The message ends as `failed` and the inbox shows **Retry**, which creates a new send when you choose.
 - **Text only**, 1-4096 characters.
+- **Templates.** `send_template` sends an approved template directly, never as a draft, because the point is to reach a contact whose window is closed. Only body text parameters are supported (at most 20, each 1-1024 characters). The template name is lowercase letters, digits and underscores, and the language code looks like `en` or `pt_BR`. Template errors such as `132000` (parameter count), `132001` (template not found in that language) and `132015` (template paused or disabled), and `invalid_template`, come back with a readable message. In the inbox a template message has a **Template** badge and no **Retry**, and the composer points at `send_template` when the window is closed.
 
 ## Deploy
 
@@ -253,14 +272,16 @@ Also:
 
 Left out on purpose, and good next steps:
 
-- Media and templates. Only text, and only inside the 24-hour window. Templates would allow messages outside it.
+- Media sending, and templates with header media or buttons.
+- A history or message-list API does not exist on pipes.bot, so history only goes back to when this app started receiving webhooks. There is also no endpoint for the window state, so the app computes it from the stored inbound messages.
+- Read receipts and typing indicators: not documented by pipes.bot, and not implemented.
 - Teams, invitations and assigning conversations. There is one user per workspace.
 - Custom fields and stages. The pipeline is fixed.
 - AI inside the app. The AI is the MCP client.
 - Creating or deleting contacts through MCP.
 - A send queue that spreads messages across numbers. The 60 requests per minute are per API key and shared by all numbers of the App.
 - Disconnecting numbers.
-- Search at scale. `search_contacts` uses a search index for text queries. A tag filter is applied in memory over at most 200 contacts, so use an index per tag for large workspaces.
+- Search at scale. `search_messages` is Convex full-text search: whole words, with prefix matching on the last word only. `search_contacts` uses a search index for text queries. A tag filter is applied in memory over at most 200 contacts, so use an index per tag for large workspaces.
 - BYON legacy, sandbox and WebSocket modes.
 - Email verification, social sign-in and personal API tokens.
 
@@ -268,7 +289,7 @@ Left out on purpose, and good next steps:
 
 **Tested:**
 
-- Automated tests: `pnpm test` (187 tests), `pnpm typecheck` and `pnpm build`, which are the commands the `mini-crm` CI job runs.
+- Automated tests: `pnpm test` (237 tests), `pnpm typecheck` and `pnpm build`, which are the commands the `mini-crm` CI job runs.
 - `pnpm smoke:oauth` passes end to end against a local anonymous Convex backend (steps listed above).
 - Over `/mcp` with the smoke token (`SMOKE_KEEP=1`): `send_message` in draft mode returns `draft_created` and the row is in `drafts`; after switching the workspace to `direct`, it returns `sent` for a demo contact. The webhook route answers 200 for a valid signature and 401 for a wrong secret or `--bad-signature` (`pnpm simulate`).
 - Browser flows, checked headless with Playwright against a local backend: sign-up, OAuth consent with Allow and Deny, sign-in continuing the OAuth flow, demo data, dragging a card between columns, **Move to…**, editing and sending a Claude draft, replying, the composer with the window closed, **Revoke**, and resetting the demo.
@@ -277,6 +298,7 @@ Left out on purpose, and good next steps:
 
 - Real MCP clients: Claude Code, claude.ai custom connectors, ChatGPT developer mode and Grok. The OAuth flow is exercised by the smoke test and the browser checks, not by these clients.
 - Sending with a real pipes.bot key. Sends are covered with a mocked `fetch` and the simulated demo number.
+- A real template send. Templates and `search_messages` are covered by tests with a mocked API; no approved template was sent to a real number.
 - A real phone number, real webhooks and real echoes.
 - Mobile layouts, and **Retry** on a real failed message.
 - The `mini-crm` CI job on GitHub. It mirrors the local commands.
