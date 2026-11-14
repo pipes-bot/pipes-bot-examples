@@ -133,6 +133,7 @@ const CONTACTS: DemoContact[] = [
     tags: ["furniture"],
     turns: [
       { from: "customer", ago: 6 * HOUR_MS, text: "The dining table was delivered in perfect condition. Thanks!" },
+      { from: "customer", ago: 5 * HOUR_MS + 30 * MINUTE_MS, text: "Could you send me the invoice for the oak table? I need it for my company." },
     ],
     notes: [{ ago: 5 * HOUR_MS, author: "you", body: "Paid in full. Ask for a review next week." }],
   },

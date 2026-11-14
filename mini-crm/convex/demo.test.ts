@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeT, seedContact, seedNumber, seedUser, type TestConvex } from "../tests/helpers";
 import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { searchMessages } from "./crmRead";
 import { windowState } from "./lib/crm";
 
 afterEach(() => {
@@ -76,6 +77,15 @@ describe("demo.seed", () => {
     expect(echoed.size).toBe(3);
     expect(rows.events.every((e) => e.webhookId.startsWith("demo_pn_demo_"))).toBe(true);
     expect(rows.activities.some((a) => a.kind === "stage_changed" && a.actor === "you")).toBe(true);
+  });
+
+  it("seed adds searchable messages and a closed-window contact", async () => {
+    const { t, workspaceId } = await seeded();
+    const hits = await t.run((ctx) => searchMessages(ctx, workspaceId, { query: "invoice", limit: 10 }));
+    expect(hits.length).toBeGreaterThanOrEqual(1);
+
+    const contacts = await contactsOf(t, workspaceId);
+    expect(contacts.some((c) => !windowState(c, Date.now()).open)).toBe(true);
   });
 
   it("seed leaves one pending draft from Claude on a waiting contact", async () => {

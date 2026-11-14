@@ -23,7 +23,7 @@ function sourceLabel(message: ConversationMessage): string {
 }
 
 function body(message: ConversationMessage): string {
-  if (message.type === "text") return message.text ?? "";
+  if (message.type === "text" || message.type === "template") return message.text ?? "";
   return message.text ? `[${message.type}] ${message.text}` : `[${message.type}]`;
 }
 
@@ -58,6 +58,7 @@ export function MessageBubble({ message, now }: { message: ConversationMessage; 
       </div>
       <div className="flex flex-wrap items-center gap-1.5 px-1 text-xs text-muted-foreground">
         {outgoing && <Badge variant="outline">{sourceLabel(message)}</Badge>}
+        {message.type === "template" && <Badge variant="secondary">Template</Badge>}
         <time dateTime={new Date(message.sentAt).toISOString()} title={formatDateTime(message.sentAt)}>
           {formatAgo(message.sentAt, now)}
         </time>
@@ -70,7 +71,7 @@ export function MessageBubble({ message, now }: { message: ConversationMessage; 
       {outgoing && message.status === "failed" && (
         <div className="flex max-w-[80%] items-center gap-2 px-1 text-xs">
           <span className="text-destructive">{sendFailure(message.error)}</span>
-          {message.retriedBy === undefined ? (
+          {message.type === "template" ? null : message.retriedBy === undefined ? (
             <Button size="xs" variant="outline" disabled={retrying} onClick={() => void onRetry()}>
               {retrying ? "Retrying…" : "Retry"}
             </Button>
