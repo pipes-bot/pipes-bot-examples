@@ -109,6 +109,24 @@ export const getConversation = internalQuery({
   },
 });
 
+export const searchMessages = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    query: v.string(),
+    contactId: v.optional(v.string()),
+    limit: v.number(),
+  },
+  handler: async (ctx, { workspaceId, query, contactId, limit }) => {
+    let id: Id<"contacts"> | undefined;
+    if (contactId !== undefined) {
+      const contact = await findContact(ctx, workspaceId, contactId);
+      if (contact === null) return { error: NOT_FOUND } satisfies Failure;
+      id = contact._id;
+    }
+    return crmRead.searchMessages(ctx, workspaceId, { query, contactId: id, limit });
+  },
+});
+
 export const listUnanswered = internalQuery({
   args: { workspaceId: v.id("workspaces"), limit: v.number() },
   handler: async (ctx, { workspaceId, limit }) =>

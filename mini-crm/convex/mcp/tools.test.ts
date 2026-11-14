@@ -147,17 +147,19 @@ describe("tools/list", () => {
       "search_contacts",
       "get_contact",
       "get_conversation",
+      "search_messages",
       "list_unanswered",
       "pipeline_summary",
     ]);
   });
 
-  test("with both scopes lists 8", async () => {
+  test("with both scopes lists 9", async () => {
     const { t } = await seed();
     expect(await toolNames(t, BOTH)).toEqual([
       "search_contacts",
       "get_contact",
       "get_conversation",
+      "search_messages",
       "list_unanswered",
       "pipeline_summary",
       "update_contact",
@@ -414,6 +416,108 @@ describe("read tools", () => {
     expect(data.counts).toEqual({ lead: 1, qualified: 0, customer: 1, lost: 0 });
     expect(data.recentStageChanges).toMatchObject([{ name: "Ana", detail: "lead → qualified" }]);
     expect(text(result)).toContain(contactId);
+  });
+});
+
+describe("search_messages", () => {
+  type Hit = { id: string; contactId: string; contact: string; from: string; text: string };
+
+  async function seedSearch() {
+    const s = await seed();
+    const { t, workspaceId, numberId, contactId, foreignContactId } = s;
+    const biaId = await seedContact(t, workspaceId, numberId, { name: "Bia", waId: "5511955555555" });
+    const caioId = await seedContact(t, workspaceId, numberId, { name: "Caio", waId: "5511966666666" });
+    const foreign = await t.run((ctx) => ctx.db.get(foreignContactId));
+    await t.run(async (ctx) => {
+      const base = { workspaceId, numberId, type: "text", status: "sent" as const };
+      await ctx.db.insert("messages", {
+        ...base, contactId, direction: "in", source: "contact", text: "Can you send the invoice?", sentAt: 1000,
+      });
+      await ctx.db.insert("messages", {
+        ...base, contactId: biaId, direction: "out", source: "phone", text: "Invoice sent", sentAt: 2000,
+      });
+      await ctx.db.insert("messages", {
+        ...base, contactId: caioId, direction: "in", source: "contact", text: "hello", sentAt: 3000,
+      });
+      await ctx.db.insert("messages", {
+        ...base,
+        workspaceId: foreign!.workspaceId,
+        contactId: foreignContactId,
+        direction: "in",
+        source: "contact",
+        text: "foreign invoice",
+        sentAt: 4000,
+      });
+    });
+    return { ...s, biaId };
+  }
+
+  test("finds messages by text across contacts, with sender labels", async () => {
+    const { t, contactId, biaId } = await seedSearch();
+    const result = await callTool(t, "search_messages", { query: "invoice" });
+    expect(result.isError).toBeUndefined();
+    const { messages } = result.structuredContent as { messages: Hit[] };
+    expect(messages).toHaveLength(2);
+    expect(messages.map((m) => [m.contactId, m.contact, m.from, m.text]).sort()).toEqual(
+      [
+        [contactId, "Ana", "contact", "Can you send the invoice?"],
+        [biaId, "Bia", "phone", "Invoice sent"],
+      ].sort(),
+    );
+    expect(summary(result)).toContain('2 message(s) matching "invoice"');
+    expect(text(result)).toContain(`[contactId: ${contactId}]`);
+  });
+
+  test("contactId narrows the search", async () => {
+    const { t, contactId } = await seedSearch();
+    const result = await callTool(t, "search_messages", { query: "invoice", contactId });
+    const { messages } = result.structuredContent as { messages: Hit[] };
+    expect(messages.map((m) => m.contactId)).toEqual([contactId]);
+  });
+
+  test("never returns another workspace's messages", async () => {
+    const { t } = await seedSearch();
+    const result = await callTool(t, "search_messages", { query: "foreign" });
+    expect((result.structuredContent as { messages: Hit[] }).messages).toEqual([]);
+  });
+
+  test("a foreign or malformed contactId is Contact not found", async () => {
+    const { t, foreignContactId } = await seedSearch();
+    for (const contactId of [foreignContactId, "nope"]) {
+      const result = await callTool(t, "search_messages", { query: "invoice", contactId });
+      expect(result.isError).toBe(true);
+      expect(text(result)).toBe("Contact not found");
+    }
+  });
+
+  test("a blank query is an error", async () => {
+    const { t } = await seedSearch();
+    const result = await callTool(t, "search_messages", { query: "   " });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toBe("Search query must not be blank.");
+  });
+
+  test("labels a nameless BSUID-only contact by its user id", async () => {
+    const { t, workspaceId, numberId } = await seed();
+    const id = await seedContact(t, workspaceId, numberId, {
+      name: undefined,
+      waId: undefined,
+      userId: "US.1",
+      searchText: "US.1",
+    });
+    await t.run((ctx) =>
+      ctx.db.insert("messages", {
+        workspaceId, contactId: id, numberId, type: "text", status: "sent",
+        direction: "in", source: "contact", text: "quote please", sentAt: 1000,
+      }),
+    );
+    const result = await callTool(t, "search_messages", { query: "quote" });
+    expect((result.structuredContent as { messages: Hit[] }).messages.map((m) => m.contact)).toEqual(["US.1"]);
+  });
+
+  test("is hidden without crm:read", async () => {
+    const { t } = await seed();
+    expect(await toolNames(t, ["crm:write"])).not.toContain("search_messages");
   });
 });
 

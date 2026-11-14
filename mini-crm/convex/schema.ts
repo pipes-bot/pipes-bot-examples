@@ -132,7 +132,8 @@ export default defineSchema({
   })
     .index("by_wamid", ["wamid"])
     .index("by_contact_sent_at", ["contactId", "sentAt"])
-    .index("by_number", ["numberId"]),
+    .index("by_number", ["numberId"])
+    .searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "contactId"] }),
 
   notes: defineTable({
     workspaceId: v.id("workspaces"),
