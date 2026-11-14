@@ -89,7 +89,8 @@ export const prepareSend = internalQuery({
     if (template !== undefined && validateTemplate(template) === null) {
       return { ok: false, error: "invalid_template" };
     }
-    if (sendableText(text) === null) return { ok: false, error: "invalid_text" };
+    // A template was validated above; its readable text may exceed the text limit.
+    if (template === undefined && sendableText(text) === null) return { ok: false, error: "invalid_text" };
     const contact = await ctx.db.get(contactId);
     if (!contact || contact.workspaceId !== workspaceId) throw new ConvexError("Not found");
     const refusal = await sendRefusal(

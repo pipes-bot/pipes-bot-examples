@@ -499,6 +499,21 @@ describe("templates", () => {
     expect(result.status).toBe("sent");
   });
 
+  it("sends a long valid template whose text exceeds the text limit", async () => {
+    const { t, workspaceId, contactId } = await seed();
+    const fetchMock = stubFetch(tplOk());
+
+    const result = await t.action(internal.sending.sendTemplate, {
+      workspaceId,
+      contactId,
+      template: { ...tpl, bodyParams: Array.from({ length: 5 }, () => "x".repeat(1000)) },
+    });
+
+    expect(result.status).toBe("sent");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe(PASSTHROUGH_URL);
+  });
+
   it("refuses a blocked number without writing", async () => {
     const { t, workspaceId, contactId } = await seed(
       {},

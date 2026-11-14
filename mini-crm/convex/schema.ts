@@ -24,13 +24,13 @@ export const healthValidator = v.object({
   detail: v.optional(v.string()),
 });
 
-// `queued` is the wait after a 429 from the API.
 export const templateValidator = v.object({
   name: v.string(),
   language: v.string(),
   bodyParams: v.array(v.string()),
 });
 
+// `queued` is the wait after a 429 from the API.
 export const messageStatusValidator = v.union(
   v.literal("pending"),
   v.literal("queued"),
