@@ -25,6 +25,12 @@ export const healthValidator = v.object({
 });
 
 // `queued` is the wait after a 429 from the API.
+export const templateValidator = v.object({
+  name: v.string(),
+  language: v.string(),
+  bodyParams: v.array(v.string()),
+});
+
 export const messageStatusValidator = v.union(
   v.literal("pending"),
   v.literal("queued"),
@@ -116,6 +122,7 @@ export default defineSchema({
     clientName: v.optional(v.string()),
     type: v.string(),
     text: v.optional(v.string()),
+    template: v.optional(templateValidator),
     status: messageStatusValidator,
     error: v.optional(v.string()),
     attempt: v.optional(v.number()),

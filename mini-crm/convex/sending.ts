@@ -13,6 +13,13 @@ import { requireWorkspaceId } from "./authz";
 import { recordActivity } from "./crm";
 import { cleanText, previewOf, windowState } from "./lib/crm";
 import { apiBaseUrl } from "./lib/env";
+import { templateValidator } from "./schema";
+import {
+  passthroughBody,
+  templateText,
+  validateTemplate,
+  type TemplateSpec,
+} from "./lib/template";
 import { parseSendFailure, rateLimitDelayMs, type SendError, type SendResult } from "./lib/send";
 
 // The only path that sends a WhatsApp message: prepareSend (refuse without writing) →
@@ -33,6 +40,7 @@ export type SendArgs = {
   workspaceId: Id<"workspaces">;
   contactId: Id<"contacts">;
   text: string;
+  template?: TemplateSpec;
   source: OutgoingSource;
   clientName?: string;
   draftId?: Id<"drafts">;
@@ -60,22 +68,37 @@ export async function sendRefusal(
   workspaceId: Id<"workspaces">,
   contact: Doc<"contacts">,
   now: number,
+  opts: { skipWindow?: boolean } = {},
 ): Promise<SendError | null> {
   if ((contact.waId ?? contact.userId) === undefined) return "no_recipient";
   const number = await ctx.db.get(contact.lastNumberId);
   if (!number || number.workspaceId !== workspaceId) return "number_unavailable";
   if (number.health?.canSendMessage === "BLOCKED") return "number_blocked";
-  if (!windowState(contact, now).open) return "window_closed";
+  if (opts.skipWindow !== true && !windowState(contact, now).open) return "window_closed";
   return null;
 }
 
 export const prepareSend = internalQuery({
-  args: { workspaceId: v.id("workspaces"), contactId: v.id("contacts"), text: v.string() },
-  handler: async (ctx, { workspaceId, contactId, text }): Promise<Prepared> => {
+  args: {
+    workspaceId: v.id("workspaces"),
+    contactId: v.id("contacts"),
+    text: v.string(),
+    template: v.optional(templateValidator),
+  },
+  handler: async (ctx, { workspaceId, contactId, text, template }): Promise<Prepared> => {
+    if (template !== undefined && validateTemplate(template) === null) {
+      return { ok: false, error: "invalid_template" };
+    }
     if (sendableText(text) === null) return { ok: false, error: "invalid_text" };
     const contact = await ctx.db.get(contactId);
     if (!contact || contact.workspaceId !== workspaceId) throw new ConvexError("Not found");
-    const refusal = await sendRefusal(ctx, workspaceId, contact, Date.now());
+    const refusal = await sendRefusal(
+      ctx,
+      workspaceId,
+      contact,
+      Date.now(),
+      template !== undefined ? { skipWindow: true } : undefined,
+    );
     return refusal === null ? { ok: true } : { ok: false, error: refusal };
   },
 });
@@ -90,6 +113,7 @@ async function requireRetryable(
   if (message.direction !== "out" || message.status !== "failed" || message.text === undefined) {
     throw new ConvexError("Only a failed message can be retried");
   }
+  if (message.type === "template") throw new ConvexError("A template message can't be retried here");
   if (message.retriedBy !== undefined) throw new ConvexError("This message was already retried");
   return { ...message, text: message.text };
 }
@@ -99,6 +123,7 @@ export const insertOutgoing = internalMutation({
     workspaceId: v.id("workspaces"),
     contactId: v.id("contacts"),
     text: v.string(),
+    template: v.optional(templateValidator),
     source: outgoingSourceValidator,
     clientName: v.optional(v.string()),
     draftId: v.optional(v.id("drafts")),
@@ -116,8 +141,9 @@ export const insertOutgoing = internalMutation({
       direction: "out",
       source: args.source,
       ...(args.clientName !== undefined ? { clientName: args.clientName } : {}),
-      type: "text",
+      type: args.template !== undefined ? "template" : "text",
       text: args.text,
+      ...(args.template !== undefined ? { template: args.template } : {}),
       status: "pending",
       attempt: 1,
       ...(args.draftId !== undefined ? { draftId: args.draftId } : {}),
@@ -227,12 +253,14 @@ function isTimeout(error: unknown): boolean {
   return name === "TimeoutError" || name === "AbortError";
 }
 
-async function postToPipes(
+async function postJson(
   apiKey: string,
-  payload: { poolNumberId: string; to: string; text: string },
+  path: string,
+  payload: unknown,
+  readWamid: (body: unknown) => unknown,
 ): Promise<ApiAttempt> {
   try {
-    const response = await fetch(`${apiBaseUrl()}/v1/messages/app/send`, {
+    const response = await fetch(`${apiBaseUrl()}${path}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -249,8 +277,7 @@ async function postToPipes(
       // Not JSON: parseSendFailure falls back to the HTTP status.
     }
     if (response.ok) {
-      // API v2 answers { messageId: "wamid....", contacts: [...] }.
-      const wamid = isRecord(body) ? body.messageId : undefined;
+      const wamid = readWamid(body);
       return typeof wamid === "string" && wamid.length > 0
         ? { kind: "sent", wamid }
         : { kind: "failed", error: `http_${response.status}` };
@@ -260,6 +287,25 @@ async function postToPipes(
     // The request may have reached WhatsApp, so neither case is retried automatically.
     return { kind: "failed", error: isTimeout(error) ? "timeout" : "network_error" };
   }
+}
+
+// API v2 answers { messageId: "wamid....", contacts: [...] }.
+function postToPipes(
+  apiKey: string,
+  payload: { poolNumberId: string; to: string; text: string },
+): Promise<ApiAttempt> {
+  return postJson(apiKey, "/v1/messages/app/send", payload, (body) =>
+    isRecord(body) ? body.messageId : undefined,
+  );
+}
+
+// The passthrough returns Meta's body: { messaging_product, contacts, messages: [{ id }] }.
+function postTemplate(apiKey: string, payload: Record<string, unknown>): Promise<ApiAttempt> {
+  return postJson(apiKey, "/v1/messages/passthrough", payload, (body) => {
+    const messages = isRecord(body) ? body.messages : undefined;
+    const first: unknown = Array.isArray(messages) ? messages[0] : undefined;
+    return isRecord(first) ? first.id : undefined;
+  });
 }
 
 function demoWamid(): string {
@@ -307,11 +353,19 @@ export async function deliverMessage(
     return await finishWith(ctx, messageId, { status: "failed", error: "not_configured" });
   }
 
-  const result = await postToPipes(apiKey, {
-    poolNumberId: number.poolNumberId,
-    to,
-    text: message.text ?? "",
-  });
+  const result = message.template
+    ? await postTemplate(
+        apiKey,
+        passthroughBody(message.template, number.poolNumberId, {
+          ...(contact?.waId !== undefined ? { waId: contact.waId } : {}),
+          ...(contact?.userId !== undefined ? { userId: contact.userId } : {}),
+        }),
+      )
+    : await postToPipes(apiKey, {
+        poolNumberId: number.poolNumberId,
+        to,
+        text: message.text ?? "",
+      });
   if (result.kind === "rate_limited") {
     const attempt = message.attempt ?? 1;
     if (attempt >= MAX_ATTEMPTS) {
@@ -348,6 +402,7 @@ export async function startSend(
     workspaceId: args.workspaceId,
     contactId: args.contactId,
     text,
+    ...(args.template !== undefined ? { template: args.template } : {}),
   });
   if (!check.ok) return { error: check.error };
   const messageId = await ctx.runMutation(internal.sending.insertOutgoing, { ...args, text });
@@ -359,6 +414,41 @@ export async function runSend(ctx: ActionCtx, args: SendArgs): Promise<SendResul
   if ("error" in started) return { status: "failed", error: started.error };
   return await deliverMessage(ctx, started.messageId);
 }
+
+export async function runTemplateSend(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    contactId: Id<"contacts">;
+    template: { name: string; language: string; bodyParams?: string[] };
+    clientName?: string;
+  },
+): Promise<SendResult> {
+  const spec = validateTemplate(args.template);
+  if (spec === null) return { status: "failed", error: "invalid_template" };
+  return await runSend(ctx, {
+    workspaceId: args.workspaceId,
+    contactId: args.contactId,
+    text: templateText(spec),
+    template: spec,
+    source: "mcp",
+    ...(args.clientName !== undefined ? { clientName: args.clientName } : {}),
+  });
+}
+
+export const sendTemplate = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    contactId: v.id("contacts"),
+    template: v.object({
+      name: v.string(),
+      language: v.string(),
+      bodyParams: v.optional(v.array(v.string())),
+    }),
+    clientName: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<SendResult> => await runTemplateSend(ctx, args),
+});
 
 export const send = action({
   args: { contactId: v.id("contacts"), text: v.string() },
